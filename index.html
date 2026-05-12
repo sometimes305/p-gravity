@@ -4,7 +4,27 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
     <title>CR Unity One Week HTML Port</title>
-    <link rel="stylesheet" href="styles.css?v=html-port-20260513-05">
+    <script>
+      (() => {
+        const params = new URLSearchParams(location.search);
+        let embedded = false;
+        try {
+          embedded = window.self !== window.top;
+        } catch (_) {
+          embedded = true;
+        }
+        if (!embedded && !params.has("loader") && !params.has("gravityLoader")) return;
+
+        const applyLoaderFit = () => {
+          const top = window.innerHeight >= 812 ? 98 : 74;
+          document.documentElement.classList.add("loader-fit");
+          document.documentElement.style.setProperty("--loader-top", `${top}px`);
+        };
+        applyLoaderFit();
+        window.addEventListener("resize", applyLoaderFit, { passive: true });
+      })();
+    </script>
+    <link rel="stylesheet" href="styles.css?v=html-port-20260513-06">
   </head>
   <body>
     <main class="app-shell">

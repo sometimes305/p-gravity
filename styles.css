@@ -2,6 +2,7 @@
   color-scheme: dark;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --loader-top: 0px;
   --accent: #ff2a7f;
   --accent-2: #8067ff;
   --gold: #f6c95f;
@@ -35,6 +36,14 @@ body {
     linear-gradient(180deg, #05060b 0%, #0b101a 50%, #020308 100%);
 }
 
+.loader-fit .app-shell {
+  position: relative;
+  align-items: start;
+  justify-items: center;
+  background: #000;
+  overflow: hidden;
+}
+
 .phone-stage {
   position: relative;
   width: 100vw;
@@ -47,12 +56,29 @@ body {
   overflow: hidden;
 }
 
+.loader-fit .phone-stage {
+  position: absolute;
+  top: var(--loader-top);
+  left: 50%;
+  width: calc((100dvh - var(--loader-top)) * 470 / 844);
+  height: calc(100dvh - var(--loader-top));
+  max-height: none;
+  transform: translateX(-50%);
+}
+
 @media (min-aspect-ratio: 470 / 844) {
   .phone-stage {
     width: calc((100vh - var(--safe-top) - var(--safe-bottom)) * 470 / 844);
     width: calc((100dvh - var(--safe-top) - var(--safe-bottom)) * 470 / 844);
     height: calc(100vh - var(--safe-top) - var(--safe-bottom));
     height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+  }
+}
+
+@media (min-aspect-ratio: 470 / 844) {
+  .loader-fit .phone-stage {
+    width: calc((100dvh - var(--loader-top)) * 470 / 844);
+    height: calc(100dvh - var(--loader-top));
   }
 }
 
