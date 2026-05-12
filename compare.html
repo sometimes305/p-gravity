@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pachinko Compare</title>
+    <style>
+      html,
+      body {
+        margin: 0;
+        width: 100%;
+        min-height: 100%;
+        background: #05070b;
+        color: #f4f7fb;
+        font: 14px/1.4 system-ui, sans-serif;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(320px, 1fr));
+        gap: 12px;
+        padding: 12px;
+        min-height: 100vh;
+        box-sizing: border-box;
+      }
+
+      .pane {
+        min-height: calc(100vh - 24px);
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: #000;
+      }
+
+      .pane h1 {
+        margin: 0;
+        padding: 8px 10px;
+        font-size: 13px;
+        font-weight: 700;
+        background: #111827;
+      }
+
+      iframe {
+        display: block;
+        width: 100%;
+        height: calc(100% - 34px);
+        border: 0;
+        background: #000;
+      }
+
+      @media (max-width: 820px) {
+        .grid {
+          grid-template-columns: 1fr;
+        }
+
+        .pane {
+          min-height: 80vh;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="grid">
+      <section class="pane">
+        <h1>Unity Reference</h1>
+        <iframe src="../prototype/"></iframe>
+      </section>
+      <section class="pane">
+        <h1>HTML Port</h1>
+        <iframe src="./"></iframe>
+      </section>
+    </div>
+  </body>
+</html>

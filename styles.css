@@ -1,0 +1,178 @@
+:root {
+  color-scheme: dark;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --accent: #ff2a7f;
+  --accent-2: #8067ff;
+  --gold: #f6c95f;
+  --panel: rgba(5, 8, 18, 0.78);
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+.app-shell {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  display: grid;
+  align-items: center;
+  justify-items: start;
+  background:
+    radial-gradient(circle at 50% 0%, rgba(27, 160, 209, 0.24), transparent 35%),
+    linear-gradient(180deg, #05060b 0%, #0b101a 50%, #020308 100%);
+}
+
+.phone-stage {
+  position: relative;
+  width: 100vw;
+  height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+  height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+  aspect-ratio: 470 / 844;
+  max-height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+  background: #000;
+  overflow: hidden;
+}
+
+@media (min-aspect-ratio: 470 / 844) {
+  .phone-stage {
+    width: calc((100vh - var(--safe-top) - var(--safe-bottom)) * 470 / 844);
+    width: calc((100dvh - var(--safe-top) - var(--safe-bottom)) * 470 / 844);
+    height: calc(100vh - var(--safe-top) - var(--safe-bottom));
+    height: calc(100dvh - var(--safe-top) - var(--safe-bottom));
+  }
+}
+
+#game {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #02040a;
+}
+
+.puchun-video {
+  position: absolute;
+  z-index: 4;
+  display: block;
+  object-fit: contain;
+  background: #000;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.puchun-video.is-visible {
+  opacity: 1;
+  visibility: visible;
+}
+
+.spin-button {
+  position: absolute;
+  z-index: 5;
+  left: 50%;
+  bottom: max(18px, calc(var(--safe-bottom) + 12px));
+  transform: translateX(-50%);
+  width: 199px;
+  height: 67px;
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  border-radius: 999px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.82), transparent 20%),
+    radial-gradient(circle at 50% 72%, rgba(255, 94, 205, 0.62), transparent 54%),
+    linear-gradient(180deg, #ff8bdd 0%, #ff4bb9 45%, #bf65ff 100%);
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, 0.62),
+    0 0 10px rgba(255, 255, 255, 0.78),
+    0 0 24px rgba(255, 116, 218, 0.72),
+    0 0 36px rgba(153, 128, 255, 0.44);
+  font: 900 26px/1 system-ui, sans-serif;
+  letter-spacing: 0;
+  isolation: isolate;
+  animation: pushPulse 1.55s ease-in-out infinite;
+}
+
+.spin-button::before {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: inherit;
+  border: 4px solid rgba(196, 181, 255, 0.88);
+  box-shadow:
+    0 0 12px rgba(201, 184, 255, 0.78),
+    0 0 20px rgba(255, 116, 218, 0.56),
+    inset 0 0 12px rgba(174, 247, 255, 0.52),
+    0 0 0 8px rgba(128, 102, 255, 0.24);
+  opacity: 0.86;
+  animation: pushRingPulse 1.25s ease-in-out infinite;
+}
+
+.spin-button::after {
+  content: "";
+  position: absolute;
+  inset: 7px;
+  border-radius: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  pointer-events: none;
+}
+
+.spin-button:disabled {
+  opacity: 0.44;
+  filter: grayscale(0.5);
+  animation: none;
+}
+
+.spin-button:active:not(:disabled) {
+  transform: translateX(-50%) translateY(2px) scale(0.96);
+}
+
+@keyframes pushPulse {
+  0%,
+  100% {
+    filter: brightness(1);
+  }
+  50% {
+    filter: brightness(1.22);
+  }
+}
+
+@keyframes pushRingPulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 0.72;
+  }
+  50% {
+    transform: scale(1.05);
+    opacity: 1;
+  }
+}
+
+.loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #02040a;
+  color: #fff;
+  font: 800 14px/1 system-ui, sans-serif;
+  letter-spacing: 0.12em;
+}
+
+.loading[hidden] {
+  display: none;
+}

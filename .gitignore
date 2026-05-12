@@ -1,0 +1,21 @@
+# Local debug captures and generated visual checks
+debug*/
+debug_*.png
+
+# Asset pipeline backups that are not used by the runtime
+assets/effects/_before_transparency_*/
+assets/effects/puchun_frames/
+assets/effects/promotion_seven_bg_frames/
+
+# Unused source images replaced by canvas-drawn holds
+assets/hold.png
+assets/hold_frame.png
+
+# Python cache
+__pycache__/
+*.pyc
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.tmp
