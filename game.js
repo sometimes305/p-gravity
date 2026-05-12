@@ -1,8 +1,8 @@
-"use strict";
+﻿"use strict";
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260512-50";
+const ASSET_VERSION = "html-port-20260513-05";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -19,7 +19,7 @@ if (typeof window !== "undefined") {
 }
 
 const SETTINGS = {
-  gameSeconds: 150,
+  gameSeconds: 5,
   initialPoints: 200,
   cellH: 146,
   reelW: 132,
@@ -85,8 +85,9 @@ const SETTINGS = {
   normalHitChance: 1 / 6,
   rushHitChance: 1 / 1.5,
   rushOddWeight: 1.2,
-  normalMissReachFreezeUpgradeChance: 1,
-  rushEvenFreezeUpgradeChance: 0.5,
+  normalMissReachFreezeUpgradeChance: 0.05,
+  rushOddFreezeUpgradeChance: 0.2,
+  rushEvenFreezeUpgradeChance: 0.3,
   winTimeBonusSec: 5,
   sevenWinTimeBonusSec: 10,
   timeBonusEffectMs: 1180,
@@ -96,6 +97,10 @@ const SETTINGS = {
   promotionSevenBgFps: 30,
   puchunBlackoutMs: 2200,
   promotionSevenHoldMs: 1500,
+  resultEndMs: 3000,
+  resultDarkenMs: 1100,
+  resultRowDelayMs: 1500,
+  resultRestartDelayMs: 2000,
   normalCrowdHitShare: 0.4,
   normalCrowdReliability: 0.8,
   normalStrongReachHitShare: 0.4,
@@ -142,6 +147,7 @@ const state = {
   crowdForecast: null,
   lastTime: performance.now(),
   resultShown: false,
+  resultPresentation: null,
   debug: false,
   stopOrder: [],
   stopCursor: 0,
@@ -353,6 +359,21 @@ const audio = {
   puchun() {
     if (!this.playSe("puchun", 1)) this.tone(70, 0.18, "sawtooth", 0.04);
   },
+  resultEnd() {
+    if (!this.playSe("resultEnd", 0.9)) this.tone(110, 0.22, "sawtooth", 0.028);
+  },
+  resultReveal1() {
+    if (!this.playSe("resultReveal1", 0.82)) {
+      this.tone(620, 0.08, "triangle", 0.026);
+      this.tone(880, 0.1, "triangle", 0.02, 0.05);
+    }
+  },
+  resultReveal2() {
+    if (!this.playSe("resultReveal2", 0.86)) {
+      this.tone(460, 0.12, "triangle", 0.026);
+      this.tone(720, 0.18, "triangle", 0.02, 0.1);
+    }
+  },
   win(seven) {
     if (!this.playSe(seven ? "sevenWin" : "normalWin", seven ? 0.86 : 0.8)) {
       const base = seven ? 660 : 520;
@@ -495,7 +516,12 @@ function drawLot() {
   const payout = symbol === 7 ? 600 : 300;
   const reachCutIn = beforeMode === RUSH ? "rushReach" : chooseNormalReachCutIn(true, true);
   const crowdForecast = beforeMode === NORMAL && chooseNormalCrowdForecast(true);
-  const freezePromotion = beforeMode === RUSH && symbol % 2 === 0 && Math.random() < SETTINGS.rushEvenFreezeUpgradeChance;
+  const rushUpgradeChance = odd && symbol !== 7
+    ? SETTINGS.rushOddFreezeUpgradeChance
+    : !odd
+      ? SETTINGS.rushEvenFreezeUpgradeChance
+      : 0;
+  const freezePromotion = beforeMode === RUSH && rushUpgradeChance > 0 && Math.random() < rushUpgradeChance;
   const instantTripleStop = beforeMode === RUSH && odd && Math.random() < SETTINGS.oddInstantTripleStopChance;
   return {
     win: true,
@@ -583,6 +609,18 @@ function showTimeBonus(seconds, seven = false) {
     start: performance.now(),
     duration: SETTINGS.timeBonusEffectMs,
   };
+}
+
+function resultCommentForScore(score) {
+  if (score <= 0) return "\u0031\u0030\u0035\u0030\u5e74\u5730\u4e0b\u884c\u304d\u3063......\uff01";
+  if (score <= 499) return "\u4eca\u65e5\u306e\u591c\u3054\u98ef\u306f\u3082\u3084\u3057\u304b\u306a......";
+  if (score <= 1999) return "\u4eca\u65e5\u306f\u65e9\u3081\u306b\u5bdd\u3088\u3046\u3002";
+  if (score <= 3999) return "\u4eca\u65e5\u306f\u3061\u3087\u3063\u3068\u30c4\u30a4\u3066\u308b\u3002";
+  if (score <= 5999) return "\u6ce2\u304c\u6765\u3066\u3044\u308b\u3002";
+  if (score <= 7999) return "\u304b\u306a\u308a\u3044\u3044\u611f\u3058\u3067\u3059\u3002";
+  if (score <= 9999) return "\u4eca\u591c\u306f\u713c\u8089\u3060\uff01";
+  if (score <= 14999) return "\u4f1d\u8aac\u306e\u59cb\u307e\u308a";
+  return "\u661f\u304c\u304b\u3063\u3066\u307e\u3059\u306d\u3002";
 }
 
 function markReelsAsSeven() {
@@ -782,10 +820,14 @@ function refreshButtonState() {
     return;
   }
   if (state.status === "result") {
-    spinButton.textContent = "RESTART";
-    spinButton.disabled = false;
+    const ready = !!state.resultPresentation?.restartReady;
+    spinButton.textContent = "もう一度遊ぶ";
+    spinButton.disabled = !ready;
+    spinButton.classList.toggle("is-result-hidden", !ready);
+    spinButton.classList.toggle("is-result-ready", ready);
     return;
   }
+  spinButton.classList.remove("is-result-hidden", "is-result-ready");
   spinButton.textContent = "PUSH";
   spinButton.disabled = state.points < SETTINGS.ballCost;
 }
@@ -1269,16 +1311,50 @@ function processCompletedSpinResult(result) {
 function showResult() {
   state.status = "result";
   state.resultShown = true;
+  state.resultPresentation = {
+    start: performance.now(),
+    comment: resultCommentForScore(state.points),
+    rowSounds: [false, false, false],
+    restartReady: false,
+  };
   state.freezePromotion = null;
   if (assets.freezeVideo) assets.freezeVideo.pause();
   hidePuchunVideo(true);
-  spinButton.textContent = "RESTART";
-  refreshButtonState();
   setAllFaces("front", true);
   audio.stopBgm();
+  audio.resultEnd();
+  refreshButtonState();
+}
+
+function updateResultPresentation(now) {
+  const presentation = state.resultPresentation;
+  if (state.status !== "result" || !presentation) return;
+  const t = now - presentation.start;
+  const firstRowAt = SETTINGS.resultEndMs + SETTINGS.resultDarkenMs;
+  const secondRowAt = firstRowAt + SETTINGS.resultRowDelayMs;
+  const thirdRowAt = secondRowAt + SETTINGS.resultRowDelayMs;
+  const restartAt = thirdRowAt + SETTINGS.resultRestartDelayMs;
+
+  if (t >= firstRowAt && !presentation.rowSounds[0]) {
+    presentation.rowSounds[0] = true;
+    audio.resultReveal1();
+  }
+  if (t >= secondRowAt && !presentation.rowSounds[1]) {
+    presentation.rowSounds[1] = true;
+    audio.resultReveal1();
+  }
+  if (t >= thirdRowAt && !presentation.rowSounds[2]) {
+    presentation.rowSounds[2] = true;
+    audio.resultReveal2();
+  }
+  if (t >= restartAt && !presentation.restartReady) {
+    presentation.restartReady = true;
+    refreshButtonState();
+  }
 }
 
 function update(dt, now) {
+  updateResultPresentation(now);
   if (state.status !== "loading" && state.status !== "result") {
     state.remainingMs = Math.max(0, state.remainingMs - dt);
     if (state.remainingMs <= 0 && state.status === "idle") {
@@ -2337,6 +2413,17 @@ function drawLowerInfoPanel(x, y, w, h, label, hot = false) {
     ctx.shadowBlur = 0;
     ctx.filter = "none";
     drawImageCover(assets.headerPanelBackground, x, y, w, h);
+    const lift = ctx.createLinearGradient(0, y, 0, y + h);
+    lift.addColorStop(0, hot ? "rgba(255,246,180,0.72)" : "rgba(238,226,255,0.68)");
+    lift.addColorStop(0.5, hot ? "rgba(255,203,92,0.44)" : "rgba(188,236,255,0.4)");
+    lift.addColorStop(1, "rgba(255,255,255,0.34)");
+    ctx.fillStyle = lift;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = hot ? "rgba(255,245,164,0.18)" : "rgba(185,224,255,0.18)";
+    roundRect(ctx, x + 5, y + 5, w - 10, h - 10, 16);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.32)";
+    ctx.fillRect(x + 8, y + 5, w - 16, 6);
   } else {
     const panel = ctx.createLinearGradient(0, y, 0, y + h);
     panel.addColorStop(0, "#17164d");
@@ -2357,12 +2444,12 @@ function drawLowerInfoPanel(x, y, w, h, label, hot = false) {
   if (label) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.font = hot ? "900 20px system-ui, sans-serif" : "900 22px system-ui, sans-serif";
-    ctx.fillStyle = hot ? "#fff0a8" : "#dff8ff";
-    ctx.shadowColor = hot ? "rgba(255,199,64,0.95)" : "rgba(130,225,255,0.9)";
-    ctx.shadowBlur = 10;
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = "rgba(18,10,55,0.95)";
+    ctx.font = hot ? "900 21px system-ui, sans-serif" : "900 23px system-ui, sans-serif";
+    ctx.fillStyle = "#ffffff";
+    ctx.shadowColor = hot ? "rgba(255,232,92,1)" : "rgba(165,242,255,1)";
+    ctx.shadowBlur = 22;
+    ctx.lineWidth = 6;
+    ctx.strokeStyle = "rgba(38,16,92,0.9)";
     ctx.strokeText(label, x + w / 2, y + h / 2 + 1);
     ctx.fillText(label, x + w / 2, y + h / 2 + 1);
   }
@@ -2888,7 +2975,78 @@ function drawToast(now) {
   ctx.restore();
 }
 
-function drawResult() {
+function drawResultRow(text, x, y, font, fill, startedAt, now) {
+  const localT = clamp01((now - startedAt) / 420);
+  if (localT <= 0) return;
+  const alpha = localT < 1 ? easeOutCubic(localT) : 1;
+  const pop = 0.92 + alpha * 0.08;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.scale(pop, pop);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.font = font;
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(0,0,0,0.82)";
+  ctx.shadowColor = "transparent";
+  ctx.shadowBlur = 0;
+  ctx.strokeText(text, 0, 0);
+  ctx.fillStyle = fill;
+  ctx.fillText(text, 0, 0);
+  ctx.restore();
+}
+
+function drawResult(now) {
+  const presentation = state.resultPresentation;
+  if (!presentation) return;
+  const elapsed = now - presentation.start;
+  const frameX = SETTINGS.reelWindowX;
+  const frameY = SETTINGS.reelWindowY;
+  const frameW = SETTINGS.reelWindowW;
+  const frameH = SETTINGS.reelWindowH;
+  const cx = frameX + frameW / 2;
+  const darkenStart = SETTINGS.resultEndMs;
+  const firstRowAt = darkenStart + SETTINGS.resultDarkenMs;
+  const secondRowAt = firstRowAt + SETTINGS.resultRowDelayMs;
+  const thirdRowAt = secondRowAt + SETTINGS.resultRowDelayMs;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(frameX, frameY, frameW, frameH);
+  ctx.clip();
+  const darkAlpha = 0.92 * easeOutCubic(clamp01((elapsed - darkenStart) / SETTINGS.resultDarkenMs));
+  ctx.fillStyle = `rgba(0,0,0,${darkAlpha})`;
+  ctx.fillRect(frameX, frameY, frameW, frameH);
+
+  const endAlpha = clamp01(1 - Math.max(0, elapsed - SETTINGS.resultEndMs + 320) / 420);
+  if (endAlpha > 0) {
+    ctx.save();
+    ctx.globalAlpha = endAlpha;
+    const img = assets.effects.resultEnd;
+    if (img) {
+      drawImageContain(img, frameX - 100, frameY - 2, frameW + 200, 264);
+    } else {
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.font = "900 48px serif";
+      ctx.lineWidth = 5;
+      ctx.strokeStyle = "rgba(17,6,38,0.92)";
+      ctx.strokeText("終了", cx, frameY + frameH / 2);
+      ctx.fillStyle = "#ffffff";
+      ctx.fillText("終了", cx, frameY + frameH / 2);
+    }
+    ctx.restore();
+  }
+
+  const resultFont = "800 22px '\u3042\u3093\u305a\u3082\u3058', 'AnzuMojI', 'AnzuMojI04', Meiryo, sans-serif";
+  drawResultRow("リザルト", cx, frameY + 68, resultFont, "#ffffff", presentation.start + firstRowAt, now);
+  drawResultRow(`スコア：${state.points}`, cx, frameY + 146, resultFont, "#ffffff", presentation.start + secondRowAt, now);
+  drawResultRow(presentation.comment, cx, frameY + 222, resultFont, "#ffffff", presentation.start + thirdRowAt, now);
+  ctx.restore();
+}
+
+function drawLegacyResult() {
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.72)";
   ctx.fillRect(0, 0, DESIGN_W, DESIGN_H);
@@ -2921,13 +3079,13 @@ function render(now) {
   drawCrowdForecast(now);
   drawFreezePromotion(now);
   drawPachinkoBoard();
-  drawLowerPanels();
   drawParticles();
   drawCabinetChrome();
+  drawLowerPanels();
   drawScreenEffects(now);
   drawTimeBonus(now);
   drawToast(now);
-  if (state.resultShown) drawResult();
+  if (state.resultShown) drawResult(now);
 }
 
 function loop(now) {
@@ -3015,6 +3173,7 @@ async function loadAssets() {
   jobs.push(loadImage("assets/effects/rush_exit.png").then((img) => (assets.effects.rushExit = img)));
   jobs.push(loadImage("assets/effects/plus_300.png").then((img) => (assets.effects.plus300 = img)));
   jobs.push(loadImage("assets/effects/plus_600.png").then((img) => (assets.effects.plus600 = img)));
+  jobs.push(loadImage("assets/effects/result_end.png").then((img) => (assets.effects.resultEnd = img)));
   jobs.push(loadFrameSequence("assets/effects/puchun_jpg", "puchun", 37).then((frames) => (assets.puchunFrames = frames)));
   jobs.push(loadFrameSequence("assets/effects/promotion_seven_bg_jpg", "bg", 45).then((frames) => (assets.promotionSevenBgFrames = frames)));
   audio.setBgmTracks({
@@ -3031,6 +3190,9 @@ async function loadAssets() {
     puchun: loadSe("assets/se/puchun.mp3"),
     sevenWin: loadSe("assets/se/seven_win.mp3"),
     normalWin: loadSe("assets/se/normal_win.mp3"),
+    resultEnd: loadSe("assets/se/result_end.mp3"),
+    resultReveal1: loadSe("assets/se/result_reveal_1.mp3"),
+    resultReveal2: loadSe("assets/se/result_reveal_2.mp3"),
   });
   await Promise.all(jobs);
 }
@@ -3043,6 +3205,7 @@ function restart() {
   state.result = null;
   state.freezePromotion = null;
   state.resultShown = false;
+  state.resultPresentation = null;
   state.stopOrder = [];
   state.stopCursor = 0;
   state.nextStopAt = 0;
@@ -3056,6 +3219,7 @@ function restart() {
   state.crowdForecast = null;
   state.toast = null;
   state.timeBonus = null;
+  spinButton.classList.remove("is-result-hidden", "is-result-ready");
   if (assets.freezeVideo) assets.freezeVideo.pause();
   hidePuchunVideo(true);
   initReels();
@@ -3066,7 +3230,7 @@ function restart() {
 
 spinButton.addEventListener("click", fireBall);
 canvas.addEventListener("pointerup", () => {
-  if (state.status === "result") restart();
+  if (state.status === "result" && state.resultPresentation?.restartReady) restart();
 });
 
 loadAssets()
