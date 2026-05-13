@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-17";
+const ASSET_VERSION = "html-port-20260513-18";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -105,6 +105,7 @@ const SETTINGS = {
   resultDarkenMs: 1100,
   resultRowDelayMs: 1500,
   resultRestartDelayMs: 2500,
+  idleFrameMs: 1000,
   normalCrowdHitShare: 0.4,
   normalCrowdReliability: 0.8,
   normalStrongReachHitShare: 0.4,
@@ -189,6 +190,9 @@ const renderCache = {
   chrome: null,
   dirty: true,
 };
+
+let loopScheduled = false;
+let loopTimer = 0;
 
 const PLINKO_PINS = [];
 function addPlinkoPin(x, y, r = 4.2) {
@@ -906,8 +910,12 @@ function consumeHoldIfIdle() {
 function addHold() {
   if (state.holds >= SETTINGS.maxHolds) return false;
   state.holds++;
-  window.setTimeout(consumeHoldIfIdle, 90);
+  window.setTimeout(() => {
+    consumeHoldIfIdle();
+    wakeLoop();
+  }, 90);
   refreshButtonState();
+  wakeLoop();
   return true;
 }
 
@@ -932,6 +940,7 @@ function fireBall() {
   });
   audio.button();
   refreshButtonState();
+  wakeLoop();
 }
 
 function eventToDesignPoint(event) {
@@ -951,6 +960,7 @@ function pointInRect(point, rect) {
 
 function toggleSound() {
   audio.setEnabled(!audio.enabled);
+  wakeLoop();
 }
 
 function reportFinalScore(score) {
@@ -959,6 +969,10 @@ function reportFinalScore(score) {
   try {
     window.parent.postMessage({ action: "report_score", score }, "*");
   } catch (_) {}
+}
+
+function wakeLoop() {
+  scheduleLoop(0, true);
 }
 
 function setSpinButtonPressing(pressing) {
@@ -980,6 +994,7 @@ function startSpin() {
   state.reachLedActive = false;
   state.status = "spinning";
   refreshButtonState();
+  wakeLoop();
   audio.updateBgm();
 
   const now = performance.now();
@@ -3407,16 +3422,75 @@ function render(now) {
   if (state.resultShown) drawResult(now);
 }
 
-function loop(now) {
-  if (document.visibilityState === "hidden") {
+function reelsAnimating() {
+  return state.reels.some((reel) => (
+    reel.flipStart
+    || reel.liftStart
+    || reel.stopping
+    || !reel.stopped
+    || reel.shake > 0
+  ));
+}
+
+function resultAnimating(now) {
+  const presentation = state.resultPresentation;
+  if (state.status !== "result" || !presentation) return false;
+  if (!presentation.restartReady) return true;
+  return now < retryLabelStartedAt() + 500;
+}
+
+function hasContinuousRenderWork(now) {
+  return state.status === "loading"
+    || state.status === "spinning"
+    || state.status === "settling"
+    || state.balls.length > 0
+    || state.particles.length > 0
+    || state.screenEffects.length > 0
+    || !!state.crowdForecast
+    || !!state.freezePromotion
+    || !!state.timeBonus
+    || !!state.toast
+    || reelsAnimating()
+    || resultAnimating(now);
+}
+
+function nextLoopDelay(now) {
+  if (hasContinuousRenderWork(now)) return 0;
+  if (state.status === "idle") {
+    return Math.max(120, Math.min(SETTINGS.idleFrameMs, state.remainingMs));
+  }
+  return SETTINGS.idleFrameMs;
+}
+
+function scheduleLoop(delay = 0, force = false) {
+  if (loopScheduled && (!force || !loopTimer)) return;
+  if (loopTimer) {
+    clearTimeout(loopTimer);
+    loopTimer = 0;
+  }
+  loopScheduled = true;
+  if (delay > 0) {
+    loopTimer = window.setTimeout(() => {
+      loopTimer = 0;
+      requestAnimationFrame(loop);
+    }, delay);
+  } else {
     requestAnimationFrame(loop);
+  }
+}
+
+function loop(now) {
+  loopScheduled = false;
+  if (document.visibilityState === "hidden") {
+    scheduleLoop(500);
     return;
   }
-  const dt = Math.min(50, now - state.lastTime);
+  const continuous = hasContinuousRenderWork(now);
+  const dt = Math.min(continuous ? 50 : SETTINGS.idleFrameMs, now - state.lastTime);
   state.lastTime = now;
   update(dt, now);
   render(now);
-  requestAnimationFrame(loop);
+  scheduleLoop(nextLoopDelay(now));
 }
 
 function loadImage(src) {
@@ -3583,6 +3657,7 @@ function restart() {
   setAllFaces("front", false);
   audio.updateBgm();
   refreshButtonState();
+  wakeLoop();
 }
 
 spinButton.addEventListener("click", fireBall);
@@ -3614,7 +3689,7 @@ loadAssets()
     refreshButtonState();
     loading.hidden = true;
     state.lastTime = performance.now();
-    requestAnimationFrame(loop);
+    scheduleLoop();
     if (new URLSearchParams(location.search).has("autoplay")) {
       window.setTimeout(fireBall, 500);
     }
