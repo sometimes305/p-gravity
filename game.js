@@ -23,7 +23,7 @@ if (typeof window !== "undefined") {
 }
 
 const SETTINGS = {
-  gameSeconds: 1,
+  gameSeconds: 150,
   initialPoints: 200,
   cellH: 146,
   reelW: 132,
