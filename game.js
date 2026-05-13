@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-05";
+const ASSET_VERSION = "html-port-20260513-06";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -13,6 +13,9 @@ const HEADER_HUD_LAYOUT = {
   time: { x: 60, labelY: 37, valueY: 68 },
   point: { right: 60, labelY: 37, valueY: 68 },
 };
+
+const SOUND_TOGGLE_BOUNDS = { x: DESIGN_W - 154, y: 786, w: 132, h: 48 };
+const SOUND_STORAGE_KEY = "pachinko.soundEnabled";
 
 if (typeof window !== "undefined") {
   window.__headerHudLayout = HEADER_HUD_LAYOUT;
@@ -200,6 +203,7 @@ for (const row of PIN_ROWS) {
 const audio = {
   ctx: null,
   unlocked: false,
+  enabled: readSoundEnabled(),
   bgm: {},
   se: {},
   activeSe: new Set(),
@@ -209,7 +213,7 @@ const audio = {
   defaultBgmVolume: 0.42,
   defaultSeVolume: 0.72,
   unlock() {
-    if (this.unlocked) return;
+    if (!this.enabled || this.unlocked) return;
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
     this.ctx = this.ctx || new AudioContext();
@@ -226,8 +230,18 @@ const audio = {
   setSeTracks(tracks) {
     this.se = tracks;
   },
+  setEnabled(enabled) {
+    this.enabled = enabled;
+    writeSoundEnabled(enabled);
+    if (!enabled) {
+      this.stopAll();
+      return;
+    }
+    this.unlock();
+    this.updateBgm();
+  },
   playSe(name, volume = this.defaultSeVolume) {
-    if (!this.unlocked) return false;
+    if (!this.enabled || !this.unlocked) return false;
     const source = this.se[name];
     if (!source) return false;
     const sound = source.cloneNode(true);
@@ -240,7 +254,7 @@ const audio = {
     return true;
   },
   playBgm(name) {
-    if (!this.unlocked) return;
+    if (!this.enabled || !this.unlocked) return;
     const next = this.bgm[name];
     if (!next || this.activeBgm === next) return;
     this.fadeOutActive(100);
@@ -316,7 +330,7 @@ const audio = {
     this.activeTones.clear();
   },
   tone(freq, duration, type = "sine", gain = 0.035, delay = 0) {
-    if (!this.ctx || !this.unlocked) return;
+    if (!this.enabled || !this.ctx || !this.unlocked) return;
     const now = this.ctx.currentTime + delay;
     const osc = this.ctx.createOscillator();
     const amp = this.ctx.createGain();
@@ -389,6 +403,20 @@ const audio = {
 
 function clamp01(value) {
   return Math.max(0, Math.min(1, value));
+}
+
+function readSoundEnabled() {
+  try {
+    return localStorage.getItem(SOUND_STORAGE_KEY) !== "0";
+  } catch (_) {
+    return true;
+  }
+}
+
+function writeSoundEnabled(enabled) {
+  try {
+    localStorage.setItem(SOUND_STORAGE_KEY, enabled ? "1" : "0");
+  } catch (_) {}
 }
 
 function randRange(min, max) {
@@ -873,6 +901,25 @@ function fireBall() {
   });
   audio.button();
   refreshButtonState();
+}
+
+function eventToDesignPoint(event) {
+  const rect = canvas.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left) * DESIGN_W / rect.width,
+    y: (event.clientY - rect.top) * DESIGN_H / rect.height,
+  };
+}
+
+function pointInRect(point, rect) {
+  return point.x >= rect.x
+    && point.x <= rect.x + rect.w
+    && point.y >= rect.y
+    && point.y <= rect.y + rect.h;
+}
+
+function toggleSound() {
+  audio.setEnabled(!audio.enabled);
 }
 
 function startSpin() {
@@ -2397,9 +2444,93 @@ function drawStartPocketFront() {
 function drawLowerPanels() {
   ctx.save();
   const y = 786;
-  drawLowerInfoPanel(22, y, 132, 48, state.mode === RUSH ? `現在${Math.max(1, state.rushStreak)}連` : "", state.mode === RUSH);
-  drawLowerInfoPanel(DESIGN_W - 154, y, 132, 48, state.mode, state.mode === RUSH);
+  drawLowerInfoPanel(22, y, 132, 48, state.mode === RUSH ? `RUSH ×${Math.max(1, state.rushStreak)}` : "", false);
+  drawSoundTogglePanel();
   drawPushPedestal(DESIGN_W / 2, 824);
+  ctx.restore();
+}
+
+function drawSoundTogglePanel() {
+  const { x, y, w, h } = SOUND_TOGGLE_BOUNDS;
+  const enabled = audio.enabled;
+  drawSoundPanelBase(x, y, w, h, enabled);
+  drawSpeakerIcon(x + w / 2, y + h / 2, enabled);
+}
+
+function drawSpeakerIcon(x, y, enabled) {
+  ctx.save();
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.strokeStyle = enabled ? "#ffffff" : "rgba(125,142,168,0.62)";
+  ctx.fillStyle = enabled ? "#ffffff" : "rgba(125,142,168,0.62)";
+  ctx.shadowColor = enabled ? "rgba(165,242,255,0.95)" : "transparent";
+  ctx.shadowBlur = enabled ? 18 : 0;
+  ctx.lineWidth = 3;
+
+  ctx.beginPath();
+  ctx.moveTo(x - 16, y - 7);
+  ctx.lineTo(x - 8, y - 7);
+  ctx.lineTo(x + 3, y - 16);
+  ctx.lineTo(x + 3, y + 16);
+  ctx.lineTo(x - 8, y + 7);
+  ctx.lineTo(x - 16, y + 7);
+  ctx.closePath();
+  ctx.fill();
+
+  if (enabled) {
+    ctx.beginPath();
+    ctx.arc(x + 7, y, 8, -0.72, 0.72);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x + 9, y, 14, -0.68, 0.68);
+    ctx.stroke();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(x + 9, y - 10);
+    ctx.lineTo(x + 24, y + 10);
+    ctx.moveTo(x + 24, y - 10);
+    ctx.lineTo(x + 9, y + 10);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSoundPanelBase(x, y, w, h, enabled) {
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 20);
+  ctx.clip();
+  if (enabled && assets.headerPanelBackground) {
+    drawImageCover(assets.headerPanelBackground, x, y, w, h);
+    const lift = ctx.createLinearGradient(0, y, 0, y + h);
+    lift.addColorStop(0, "rgba(238,226,255,0.68)");
+    lift.addColorStop(0.5, "rgba(188,236,255,0.4)");
+    lift.addColorStop(1, "rgba(255,255,255,0.34)");
+    ctx.fillStyle = lift;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "rgba(185,224,255,0.18)";
+    roundRect(ctx, x + 5, y + 5, w - 10, h - 10, 16);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,0.32)";
+    ctx.fillRect(x + 8, y + 5, w - 16, 6);
+  } else {
+    const panel = ctx.createLinearGradient(0, y, 0, y + h);
+    panel.addColorStop(0, "#101323");
+    panel.addColorStop(1, "#050713");
+    ctx.fillStyle = panel;
+    ctx.fillRect(x, y, w, h);
+    ctx.fillStyle = "rgba(12,18,34,0.62)";
+    roundRect(ctx, x + 5, y + 5, w - 10, h - 10, 16);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 20);
+  ctx.shadowColor = enabled ? "rgba(151,118,255,0.62)" : "transparent";
+  ctx.shadowBlur = enabled ? 9 : 0;
+  ctx.strokeStyle = enabled ? "rgba(189,169,255,0.86)" : "rgba(62,72,93,0.72)";
+  ctx.lineWidth = 2;
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -3229,7 +3360,11 @@ function restart() {
 }
 
 spinButton.addEventListener("click", fireBall);
-canvas.addEventListener("pointerup", () => {
+canvas.addEventListener("pointerup", (event) => {
+  if (pointInRect(eventToDesignPoint(event), SOUND_TOGGLE_BOUNDS)) {
+    toggleSound();
+    return;
+  }
   if (state.status === "result" && state.resultPresentation?.restartReady) restart();
 });
 

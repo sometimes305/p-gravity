@@ -109,51 +109,28 @@ body {
   position: absolute;
   z-index: 5;
   left: 50%;
-  bottom: max(18px, calc(var(--safe-bottom) + 12px));
+  bottom: max(-13px, calc(var(--safe-bottom) - 15px));
   transform: translateX(-50%);
-  width: 199px;
-  height: 67px;
-  border: 1px solid rgba(255, 255, 255, 0.32);
-  border-radius: 999px;
-  color: #fff;
-  background:
-    radial-gradient(circle at 50% 28%, rgba(255, 255, 255, 0.82), transparent 20%),
-    radial-gradient(circle at 50% 72%, rgba(255, 94, 205, 0.62), transparent 54%),
-    linear-gradient(180deg, #ff8bdd 0%, #ff4bb9 45%, #bf65ff 100%);
-  box-shadow:
-    0 16px 38px rgba(0, 0, 0, 0.62),
-    0 0 10px rgba(255, 255, 255, 0.78),
-    0 0 24px rgba(255, 116, 218, 0.72),
-    0 0 36px rgba(153, 128, 255, 0.44);
-  font: 900 26px/1 system-ui, sans-serif;
+  width: 212px;
+  height: 140px;
+  box-sizing: border-box;
+  overflow: visible;
+  border: 0;
+  border-radius: 0;
+  color: transparent;
+  background: url("assets/button_push.png?v=html-port-20260513-09") center / contain no-repeat;
+  font: 0/1 system-ui, sans-serif;
   letter-spacing: 0;
   isolation: isolate;
   animation: pushPulse 1.55s ease-in-out infinite;
 }
 
 .spin-button::before {
-  content: "";
-  position: absolute;
-  inset: -8px;
-  z-index: -1;
-  border-radius: inherit;
-  border: 4px solid rgba(196, 181, 255, 0.88);
-  box-shadow:
-    0 0 12px rgba(201, 184, 255, 0.78),
-    0 0 20px rgba(255, 116, 218, 0.56),
-    inset 0 0 12px rgba(174, 247, 255, 0.52),
-    0 0 0 8px rgba(128, 102, 255, 0.24);
-  opacity: 0.86;
-  animation: pushRingPulse 1.25s ease-in-out infinite;
+  content: none;
 }
 
 .spin-button::after {
-  content: "";
-  position: absolute;
-  inset: 7px;
-  border-radius: inherit;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-  pointer-events: none;
+  content: none;
 }
 
 .spin-button:disabled {
@@ -167,6 +144,7 @@ body {
   visibility: hidden;
   pointer-events: none;
   animation: none;
+  filter: none;
   transform: translateX(-50%) translateY(8px) scale(0.96);
   transition: opacity 0.5s ease, transform 0.5s ease, visibility 0.5s ease;
 }
@@ -186,21 +164,35 @@ body {
 @keyframes pushPulse {
   0%,
   100% {
-    filter: brightness(1);
+    filter:
+      brightness(1)
+      drop-shadow(0 12px 12px rgba(0, 0, 0, 0.46))
+      drop-shadow(0 0 11px rgba(220, 196, 255, 0.7))
+      drop-shadow(0 0 22px rgba(255, 116, 218, 0.45));
   }
   50% {
-    filter: brightness(1.22);
+    filter:
+      brightness(1.16)
+      drop-shadow(0 12px 12px rgba(0, 0, 0, 0.46))
+      drop-shadow(0 0 16px rgba(240, 225, 255, 0.9))
+      drop-shadow(0 0 32px rgba(255, 116, 218, 0.62));
   }
 }
 
 @keyframes pushRingPulse {
   0%,
   100% {
-    transform: scale(1);
+    box-shadow:
+      0 0 10px rgba(255, 255, 255, 0.66),
+      0 0 22px rgba(255, 116, 218, 0.62),
+      0 0 34px rgba(153, 128, 255, 0.38);
     opacity: 0.72;
   }
   50% {
-    transform: scale(1.05);
+    box-shadow:
+      0 0 14px rgba(255, 255, 255, 0.86),
+      0 0 28px rgba(255, 116, 218, 0.72),
+      0 0 44px rgba(153, 128, 255, 0.48);
     opacity: 1;
   }
 }

@@ -24,8 +24,10 @@ Static browser-game port of the patched pachinko prototype.
   - Even hit returns to normal
 - Reach flip-to-back and normal return behavior.
 - Result screen.
-- WebAudio placeholder SE at spin, stop, flip, win, and lose timings.
+- Asset-backed BGM and SE for normal play, reach, RUSH, wins, result reveal, and result end.
+- Cabinet, header, plinko, hold, reach, RUSH, payout, freeze-promotion, and result assets wired into the canvas renderer.
+- GitHub Pages deployment workflow under `.github/workflows/pages.yml`.
 
 ## Asset Notes
 
-No extracted audio files were found under `C:\Codex\pachinko` at the time this port was created. The current SE are generated placeholders and are intentionally isolated in `audio` inside `game.js` so they can be replaced with Unity-extracted sounds later.
+Runtime assets are copied into `assets/` and cache-busted with `ASSET_VERSION` in `game.js` plus the query strings in `index.html`.
