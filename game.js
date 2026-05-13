@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-06";
+const ASSET_VERSION = "html-port-20260513-13";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -15,6 +15,7 @@ const HEADER_HUD_LAYOUT = {
 };
 
 const SOUND_TOGGLE_BOUNDS = { x: DESIGN_W - 154, y: 786, w: 132, h: 48 };
+const RETRY_PANEL_BOUNDS = { x: 22, y: 786, w: 132, h: 48 };
 const SOUND_STORAGE_KEY = "pachinko.soundEnabled";
 
 if (typeof window !== "undefined") {
@@ -22,7 +23,7 @@ if (typeof window !== "undefined") {
 }
 
 const SETTINGS = {
-  gameSeconds: 150,
+  gameSeconds: 1,
   initialPoints: 200,
   cellH: 146,
   reelW: 132,
@@ -103,7 +104,7 @@ const SETTINGS = {
   resultEndMs: 3000,
   resultDarkenMs: 1100,
   resultRowDelayMs: 1500,
-  resultRestartDelayMs: 2000,
+  resultRestartDelayMs: 2500,
   normalCrowdHitShare: 0.4,
   normalCrowdReliability: 0.8,
   normalStrongReachHitShare: 0.4,
@@ -151,6 +152,7 @@ const state = {
   lastTime: performance.now(),
   resultShown: false,
   resultPresentation: null,
+  scoreReported: false,
   debug: false,
   stopOrder: [],
   stopCursor: 0,
@@ -177,6 +179,7 @@ const assets = {
   titleLogo: null,
   headerPanelBackground: null,
   plinkoBackground: null,
+  retry: null,
   effects: {},
 };
 
@@ -848,11 +851,9 @@ function refreshButtonState() {
     return;
   }
   if (state.status === "result") {
-    const ready = !!state.resultPresentation?.restartReady;
-    spinButton.textContent = "もう一度遊ぶ";
-    spinButton.disabled = !ready;
-    spinButton.classList.toggle("is-result-hidden", !ready);
-    spinButton.classList.toggle("is-result-ready", ready);
+    spinButton.classList.remove("is-result-hidden", "is-result-ready");
+    spinButton.textContent = "PUSH";
+    spinButton.disabled = false;
     return;
   }
   spinButton.classList.remove("is-result-hidden", "is-result-ready");
@@ -882,7 +883,6 @@ function addHold() {
 function fireBall() {
   audio.unlock();
   if (state.status === "result") {
-    restart();
     return;
   }
   if (state.status === "loading") return;
@@ -920,6 +920,22 @@ function pointInRect(point, rect) {
 
 function toggleSound() {
   audio.setEnabled(!audio.enabled);
+}
+
+function reportFinalScore(score) {
+  if (state.scoreReported) return;
+  state.scoreReported = true;
+  try {
+    window.parent.postMessage({ action: "report_score", score }, "*");
+  } catch (_) {}
+}
+
+function setSpinButtonPressing(pressing) {
+  if (spinButton.disabled) {
+    spinButton.classList.remove("is-pressing");
+    return;
+  }
+  spinButton.classList.toggle("is-pressing", pressing);
 }
 
 function startSpin() {
@@ -1358,6 +1374,7 @@ function processCompletedSpinResult(result) {
 function showResult() {
   state.status = "result";
   state.resultShown = true;
+  reportFinalScore(state.points);
   state.resultPresentation = {
     start: performance.now(),
     comment: resultCommentForScore(state.points),
@@ -2441,13 +2458,61 @@ function drawStartPocketFront() {
   ctx.restore();
 }
 
-function drawLowerPanels() {
+function drawLowerPanels(now) {
   ctx.save();
-  const y = 786;
-  drawLowerInfoPanel(22, y, 132, 48, state.mode === RUSH ? `RUSH ×${Math.max(1, state.rushStreak)}` : "", false);
+  const retryReady = state.status === "result" && !!state.resultPresentation?.restartReady;
+  const rushLabel = state.mode === RUSH ? `RUSH ×${Math.max(1, state.rushStreak)}` : "";
+  drawLowerInfoPanel(
+    RETRY_PANEL_BOUNDS.x,
+    RETRY_PANEL_BOUNDS.y,
+    RETRY_PANEL_BOUNDS.w,
+    RETRY_PANEL_BOUNDS.h,
+    retryReady ? "" : rushLabel,
+    false,
+  );
+  if (retryReady) drawRetryPanelLabel(now);
   drawSoundTogglePanel();
   drawPushPedestal(DESIGN_W / 2, 824);
   ctx.restore();
+}
+
+function retryLabelStartedAt() {
+  const presentation = state.resultPresentation;
+  return presentation.start
+    + SETTINGS.resultEndMs
+    + SETTINGS.resultDarkenMs
+    + SETTINGS.resultRowDelayMs * 2
+    + SETTINGS.resultRestartDelayMs;
+}
+
+function drawRetryPanelLabel(now) {
+  const startedAt = retryLabelStartedAt();
+  if (assets.retry) {
+    const localT = clamp01((now - startedAt) / 420);
+    if (localT <= 0) return;
+    const alpha = localT < 1 ? easeOutCubic(localT) : 1;
+    const pop = 0.92 + alpha * 0.08;
+    const { x, y, w, h } = RETRY_PANEL_BOUNDS;
+
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.translate(x + w / 2, y + h / 2 + 1);
+    ctx.scale(pop, pop);
+    drawImageContain(assets.retry, -w * 0.47, -h * 0.36, w * 0.94, h * 0.72);
+    ctx.restore();
+    return;
+  }
+
+  const retryFont = "800 22px '\u3042\u3093\u305a\u3082\u3058', 'AnzuMojI', 'AnzuMojI04', Meiryo, sans-serif";
+  drawResultRow(
+    "リトライ",
+    RETRY_PANEL_BOUNDS.x + RETRY_PANEL_BOUNDS.w / 2,
+    RETRY_PANEL_BOUNDS.y + RETRY_PANEL_BOUNDS.h / 2 + 1,
+    retryFont,
+    "#ffffff",
+    startedAt,
+    now,
+  );
 }
 
 function drawSoundTogglePanel() {
@@ -3147,8 +3212,17 @@ function drawResult(now) {
   ctx.rect(frameX, frameY, frameW, frameH);
   ctx.clip();
   const darkAlpha = 0.92 * easeOutCubic(clamp01((elapsed - darkenStart) / SETTINGS.resultDarkenMs));
-  ctx.fillStyle = `rgba(0,0,0,${darkAlpha})`;
-  ctx.fillRect(frameX, frameY, frameW, frameH);
+  if (assets.headerPanelBackground) {
+    ctx.save();
+    ctx.globalAlpha = darkAlpha;
+    drawImageCover(assets.headerPanelBackground, frameX, frameY, frameW, frameH);
+    ctx.restore();
+    ctx.fillStyle = `rgba(8,4,24,${0.42 * darkAlpha})`;
+    ctx.fillRect(frameX, frameY, frameW, frameH);
+  } else {
+    ctx.fillStyle = `rgba(0,0,0,${darkAlpha})`;
+    ctx.fillRect(frameX, frameY, frameW, frameH);
+  }
 
   const endAlpha = clamp01(1 - Math.max(0, elapsed - SETTINGS.resultEndMs + 320) / 420);
   if (endAlpha > 0) {
@@ -3212,7 +3286,7 @@ function render(now) {
   drawPachinkoBoard();
   drawParticles();
   drawCabinetChrome();
-  drawLowerPanels();
+  drawLowerPanels(now);
   drawScreenEffects(now);
   drawTimeBonus(now);
   drawToast(now);
@@ -3297,6 +3371,7 @@ async function loadAssets() {
   jobs.push(loadImage("assets/title_logo.png").then((img) => (assets.titleLogo = img)));
   jobs.push(loadImage("assets/header_panel_bg.png").then((img) => (assets.headerPanelBackground = img)));
   jobs.push(loadImage("assets/plinko_area_bg.png").then((img) => (assets.plinkoBackground = img)));
+  jobs.push(loadImage("assets/retry_trim.png").then((img) => (assets.retry = img)));
   jobs.push(loadImage("assets/effects/reach_weak.png").then((img) => (assets.effects.reachWeak = img)));
   jobs.push(loadImage("assets/effects/reach_strong.png").then((img) => (assets.effects.reachStrong = img)));
   jobs.push(loadImage("assets/effects/rush_reach.png").then((img) => (assets.effects.rushReach = img)));
@@ -3337,6 +3412,7 @@ function restart() {
   state.freezePromotion = null;
   state.resultShown = false;
   state.resultPresentation = null;
+  state.scoreReported = false;
   state.stopOrder = [];
   state.stopCursor = 0;
   state.nextStopAt = 0;
@@ -3360,12 +3436,23 @@ function restart() {
 }
 
 spinButton.addEventListener("click", fireBall);
+spinButton.addEventListener("pointerdown", () => setSpinButtonPressing(true));
+spinButton.addEventListener("pointerup", () => setSpinButtonPressing(false));
+spinButton.addEventListener("pointercancel", () => setSpinButtonPressing(false));
+spinButton.addEventListener("pointerleave", () => setSpinButtonPressing(false));
 canvas.addEventListener("pointerup", (event) => {
-  if (pointInRect(eventToDesignPoint(event), SOUND_TOGGLE_BOUNDS)) {
+  const point = eventToDesignPoint(event);
+  if (pointInRect(point, SOUND_TOGGLE_BOUNDS)) {
     toggleSound();
     return;
   }
-  if (state.status === "result" && state.resultPresentation?.restartReady) restart();
+  if (
+    state.status === "result"
+    && state.resultPresentation?.restartReady
+    && pointInRect(point, RETRY_PANEL_BOUNDS)
+  ) {
+    restart();
+  }
 });
 
 loadAssets()

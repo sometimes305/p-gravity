@@ -109,10 +109,10 @@ body {
   position: absolute;
   z-index: 5;
   left: 50%;
-  bottom: max(-13px, calc(var(--safe-bottom) - 15px));
+  bottom: -1.54%;
   transform: translateX(-50%);
-  width: 212px;
-  height: 140px;
+  width: 40%;
+  height: 14%;
   box-sizing: border-box;
   overflow: visible;
   border: 0;
@@ -123,6 +123,8 @@ body {
   letter-spacing: 0;
   isolation: isolate;
   animation: pushPulse 1.55s ease-in-out infinite;
+  touch-action: manipulation;
+  transition: transform 80ms ease, filter 80ms ease;
 }
 
 .spin-button::before {
@@ -157,7 +159,8 @@ body {
   transition: opacity 0.65s ease, transform 0.65s ease;
 }
 
-.spin-button:active:not(:disabled) {
+.spin-button:active:not(:disabled),
+.spin-button.is-pressing:not(:disabled) {
   transform: translateX(-50%) translateY(2px) scale(0.96);
 }
 
