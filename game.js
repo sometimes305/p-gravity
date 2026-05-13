@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-32";
+const ASSET_VERSION = "html-port-20260513-33";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -18,7 +18,7 @@ const SOUND_TOGGLE_BOUNDS = { x: DESIGN_W - 154, y: 786, w: 132, h: 48 };
 const RETRY_PANEL_BOUNDS = { x: 22, y: 786, w: 132, h: 48 };
 const SOUND_STORAGE_KEY = "pachinko.soundLevel";
 const LEGACY_SOUND_STORAGE_KEY = "pachinko.soundEnabled";
-const SOUND_LEVEL_FACTORS = [0, 0.1, 0.5, 1];
+const SOUND_LEVEL_FACTORS = [0, 0.05, 0.3, 1];
 const USE_WEB_AUDIO_BGM_GAIN =
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
