@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-23";
+const ASSET_VERSION = "html-port-20260513-25";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -22,6 +22,7 @@ const SOUND_LEVEL_FACTORS = [0, 0.1, 0.5, 1];
 const USE_WEB_AUDIO_BGM_GAIN =
   /iPad|iPhone|iPod/.test(navigator.userAgent) ||
   (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+const USE_WEB_AUDIO_SE_GAIN = USE_WEB_AUDIO_BGM_GAIN;
 
 if (typeof window !== "undefined") {
   window.__headerHudLayout = HEADER_HUD_LAYOUT;
@@ -225,12 +226,15 @@ const audio = {
   level: readSoundLevel(),
   bgm: {},
   se: {},
+  bgmBuffers: {},
   seBuffers: {},
   bgmNodes: new Map(),
   activeSe: new Set(),
   activeTones: new Set(),
+  activeBgmName: null,
   activeBgm: null,
-  fadeTimer: null,
+  activeBgmNode: null,
+  fadeFrame: null,
   defaultBgmVolume: 0.42,
   defaultSeVolume: 0.72,
   get enabled() {
@@ -260,6 +264,12 @@ const audio = {
   resumeContext() {
     if (this.ctx && this.ctx.state === "suspended") {
       this.ctx.resume().catch(() => {});
+    }
+  },
+  cancelFade() {
+    if (this.fadeFrame) {
+      cancelAnimationFrame(this.fadeFrame);
+      this.fadeFrame = null;
     }
   },
   ensureBgmNode(track) {
@@ -296,6 +306,9 @@ const audio = {
   setBgmTracks(tracks) {
     this.bgm = tracks;
   },
+  setBgmBuffers(buffers) {
+    this.bgmBuffers = buffers;
+  },
   setSeTracks(tracks) {
     this.se = tracks;
   },
@@ -310,6 +323,7 @@ const audio = {
       return;
     }
     this.unlock();
+    if (this.activeBgmNode) this.activeBgmNode.gain.gain.value = this.bgmVolume();
     if (this.activeBgm) this.setBgmTrackVolume(this.activeBgm, this.bgmVolume());
     this.updateBgm();
   },
@@ -320,7 +334,7 @@ const audio = {
     if (!this.enabled || !this.unlocked) return false;
     this.resumeContext();
     const buffer = this.seBuffers[name];
-    if (buffer && this.ctx) {
+    if (USE_WEB_AUDIO_SE_GAIN && buffer && this.ctx) {
       const source = this.ctx.createBufferSource();
       const gain = this.ctx.createGain();
       source.buffer = buffer;
@@ -344,7 +358,7 @@ const audio = {
     const sound = source.cloneNode(true);
     let mediaNode = null;
     let mediaGain = null;
-    if (this.ctx) {
+    if (USE_WEB_AUDIO_SE_GAIN && this.ctx) {
       try {
         mediaNode = this.ctx.createMediaElementSource(sound);
         mediaGain = this.ctx.createGain();
@@ -377,13 +391,47 @@ const audio = {
   playBgm(name) {
     if (!this.enabled || !this.unlocked) return;
     this.resumeContext();
+    const buffer = this.bgmBuffers[name];
+    if (buffer && this.ctx) {
+      this.playBufferedBgm(name, buffer);
+      return;
+    }
     const next = this.bgm[name];
-    if (!next || this.activeBgm === next) return;
+    if (!next || this.activeBgmName === name) return;
     this.fadeOutActive(100);
+    this.activeBgmName = name;
+    this.activeBgmNode = null;
     this.activeBgm = next;
     this.setBgmTrackVolume(next, this.bgmVolume());
     next.currentTime = 0;
     next.play().catch(() => {});
+  },
+  playBufferedBgm(name, buffer) {
+    if (this.activeBgmName === name) return;
+    this.fadeOutActive(120);
+    const source = this.ctx.createBufferSource();
+    const gain = this.ctx.createGain();
+    source.buffer = buffer;
+    source.loop = true;
+    gain.gain.value = this.bgmVolume();
+    source.connect(gain).connect(this.ctx.destination);
+    const node = { name, source, gain };
+    this.activeBgmName = name;
+    this.activeBgmNode = node;
+    this.activeBgm = null;
+    source.addEventListener("ended", () => {
+      try {
+        source.disconnect();
+      } catch (_) {}
+      try {
+        gain.disconnect();
+      } catch (_) {}
+      if (this.activeBgmNode === node) {
+        this.activeBgmNode = null;
+        this.activeBgmName = null;
+      }
+    }, { once: true });
+    source.start();
   },
   updateBgm() {
     if (state.status === "result") {
@@ -400,35 +448,58 @@ const audio = {
     if (state.mode === NORMAL) this.playBgm("normalReach");
   },
   fadeOutActive(ms = 100) {
+    const node = this.activeBgmNode;
     const track = this.activeBgm;
-    if (!track) return;
-    if (this.fadeTimer) {
-      clearInterval(this.fadeTimer);
-      this.fadeTimer = null;
-    }
-    const startVolume = this.getBgmTrackVolume(track);
+    if (!node && !track) return;
+    this.cancelFade();
+    const startVolume = node ? node.gain.gain.value : this.getBgmTrackVolume(track);
     const startedAt = performance.now();
-    this.fadeTimer = window.setInterval(() => {
+    const step = () => {
       const t = clamp01((performance.now() - startedAt) / ms);
-      this.setBgmTrackVolume(track, startVolume * (1 - t));
+      const volume = startVolume * (1 - t);
+      if (node) node.gain.gain.value = volume;
+      if (track) this.setBgmTrackVolume(track, volume);
       if (t >= 1) {
-        clearInterval(this.fadeTimer);
-        this.fadeTimer = null;
-        track.pause();
-        this.setBgmTrackVolume(track, this.bgmVolume());
-        if (this.activeBgm === track) this.activeBgm = null;
+        this.fadeFrame = null;
+        if (node) {
+          try {
+            node.source.stop();
+          } catch (_) {}
+          if (this.activeBgmNode === node) this.activeBgmNode = null;
+        }
+        if (track) {
+          track.pause();
+          this.setBgmTrackVolume(track, this.bgmVolume());
+          if (this.activeBgm === track) this.activeBgm = null;
+        }
+        if ((node && this.activeBgmNode === node) || (track && this.activeBgm === track)) {
+          this.activeBgmName = null;
+        }
+        return;
       }
-    }, 16);
+      this.fadeFrame = requestAnimationFrame(step);
+    };
+    this.fadeFrame = requestAnimationFrame(step);
   },
   stopBgm() {
-    if (!this.activeBgm) return;
+    if (!this.activeBgm && !this.activeBgmNode) return;
     this.fadeOutActive(100);
+    this.activeBgmName = null;
     this.activeBgm = null;
+    this.activeBgmNode = null;
   },
   stopAll() {
-    if (this.fadeTimer) {
-      clearInterval(this.fadeTimer);
-      this.fadeTimer = null;
+    this.cancelFade();
+    if (this.activeBgmNode) {
+      try {
+        this.activeBgmNode.source.stop();
+      } catch (_) {}
+      try {
+        this.activeBgmNode.source.disconnect();
+      } catch (_) {}
+      try {
+        this.activeBgmNode.gain.disconnect();
+      } catch (_) {}
     }
     for (const track of Object.values(this.bgm)) {
       if (!track) continue;
@@ -436,7 +507,9 @@ const audio = {
       track.currentTime = 0;
       this.setBgmTrackVolume(track, 0);
     }
+    this.activeBgmName = null;
     this.activeBgm = null;
+    this.activeBgmNode = null;
     for (const sound of Array.from(this.activeSe)) {
       sound.pause();
       sound.currentTime = 0;
@@ -3703,6 +3776,13 @@ async function loadAssets() {
     normalReach: loadAudio("assets/bgm/normal_reach.mp3"),
     rush: loadAudio("assets/bgm/rush.mp3"),
   });
+  jobs.push(Promise.all([
+    loadSeBuffer("assets/bgm/normal.mp3").then((buffer) => ["normal", buffer]),
+    loadSeBuffer("assets/bgm/normal_reach.mp3").then((buffer) => ["normalReach", buffer]),
+    loadSeBuffer("assets/bgm/rush.mp3").then((buffer) => ["rush", buffer]),
+  ]).then((entries) => {
+    audio.setBgmBuffers(Object.fromEntries(entries.filter((entry) => entry[1])));
+  }));
   audio.setSeTracks({
     button: loadSe("assets/se/button.mp3"),
     reach: loadSe("assets/se/reach.mp3"),
