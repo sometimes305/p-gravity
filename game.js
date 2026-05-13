@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-16";
+const ASSET_VERSION = "html-port-20260513-17";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -216,6 +216,7 @@ const audio = {
   enabled: readSoundEnabled(),
   bgm: {},
   se: {},
+  seBuffers: {},
   activeSe: new Set(),
   activeTones: new Set(),
   activeBgm: null,
@@ -240,6 +241,9 @@ const audio = {
   setSeTracks(tracks) {
     this.se = tracks;
   },
+  setSeBuffers(buffers) {
+    this.seBuffers = buffers;
+  },
   setEnabled(enabled) {
     this.enabled = enabled;
     writeSoundEnabled(enabled);
@@ -252,6 +256,26 @@ const audio = {
   },
   playSe(name, volume = this.defaultSeVolume) {
     if (!this.enabled || !this.unlocked) return false;
+    const buffer = this.seBuffers[name];
+    if (buffer && this.ctx) {
+      const source = this.ctx.createBufferSource();
+      const gain = this.ctx.createGain();
+      source.buffer = buffer;
+      gain.gain.value = volume;
+      source.connect(gain).connect(this.ctx.destination);
+      this.activeTones.add(source);
+      source.addEventListener("ended", () => {
+        this.activeTones.delete(source);
+        try {
+          source.disconnect();
+        } catch (_) {}
+        try {
+          gain.disconnect();
+        } catch (_) {}
+      }, { once: true });
+      source.start();
+      return true;
+    }
     const source = this.se[name];
     if (!source) return false;
     const sound = source.cloneNode(true);
@@ -3398,7 +3422,13 @@ function loop(now) {
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve(img);
+    img.onload = () => {
+      if (img.decode) {
+        img.decode().catch(() => {}).then(() => resolve(img));
+      } else {
+        resolve(img);
+      }
+    };
     img.onerror = () => reject(new Error(`Failed to load ${src}`));
     img.src = `${src}?v=${ASSET_VERSION}`;
   });
@@ -3436,6 +3466,7 @@ function loadAudio(src) {
   track.preload = "auto";
   track.loop = true;
   track.volume = 0.42;
+  track.load();
   return track;
 }
 
@@ -3444,7 +3475,22 @@ function loadSe(src) {
   track.preload = "auto";
   track.loop = false;
   track.volume = audio.defaultSeVolume;
+  track.load();
   return track;
+}
+
+async function loadSeBuffer(src) {
+  const AudioContext = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContext) return null;
+  try {
+    const context = audio.ctx || new AudioContext();
+    audio.ctx = context;
+    const response = await fetch(`${src}?v=${ASSET_VERSION}`);
+    const data = await response.arrayBuffer();
+    return await context.decodeAudioData(data);
+  } catch (_) {
+    return null;
+  }
 }
 
 async function loadAssets() {
@@ -3455,25 +3501,25 @@ async function loadAssets() {
   }
   jobs.push(loadImage("assets/strip_omote.png").then((img) => (assets.stripFront = img)));
   jobs.push(loadImage("assets/strip_ura.png").then((img) => (assets.stripBack = img)));
-  jobs.push(loadImage("assets/background_normal.png").then((img) => (assets.backgroundNormal = img)));
-  jobs.push(loadImage("assets/background_rush.png").then((img) => (assets.backgroundRush = img)));
-  jobs.push(loadImage("assets/crowd_forecast.png").then((img) => (assets.crowdForecast = img)));
+  jobs.push(loadImage("assets/optimized/background_normal.png").then((img) => (assets.backgroundNormal = img)));
+  jobs.push(loadImage("assets/optimized/background_rush.png").then((img) => (assets.backgroundRush = img)));
+  jobs.push(loadImage("assets/optimized/crowd_forecast.png").then((img) => (assets.crowdForecast = img)));
   jobs.push(loadImage("assets/cabinet/cabinet_back.png").then((img) => (assets.cabinetBack = img)));
   jobs.push(loadImage("assets/cabinet/cabinet_front.png").then((img) => (assets.cabinetFront = img)));
   jobs.push(loadImage("assets/cabinet/cabinet_glass.png").then((img) => (assets.cabinetGlass = img)));
   jobs.push(loadImage("assets/start_pocket.png").then((img) => (assets.startPocket = img)));
   jobs.push(loadImage("assets/title_logo.png").then((img) => (assets.titleLogo = img)));
-  jobs.push(loadImage("assets/header_panel_bg.png").then((img) => (assets.headerPanelBackground = img)));
-  jobs.push(loadImage("assets/plinko_area_bg.png").then((img) => (assets.plinkoBackground = img)));
+  jobs.push(loadImage("assets/optimized/header_panel_bg.png").then((img) => (assets.headerPanelBackground = img)));
+  jobs.push(loadImage("assets/optimized/plinko_area_bg.png").then((img) => (assets.plinkoBackground = img)));
   jobs.push(loadImage("assets/retry_trim.png").then((img) => (assets.retry = img)));
-  jobs.push(loadImage("assets/effects/reach_weak.png").then((img) => (assets.effects.reachWeak = img)));
-  jobs.push(loadImage("assets/effects/reach_strong.png").then((img) => (assets.effects.reachStrong = img)));
-  jobs.push(loadImage("assets/effects/rush_reach.png").then((img) => (assets.effects.rushReach = img)));
-  jobs.push(loadImage("assets/effects/rush_entry.png").then((img) => (assets.effects.rushEntry = img)));
-  jobs.push(loadImage("assets/effects/rush_exit.png").then((img) => (assets.effects.rushExit = img)));
-  jobs.push(loadImage("assets/effects/plus_300.png").then((img) => (assets.effects.plus300 = img)));
-  jobs.push(loadImage("assets/effects/plus_600.png").then((img) => (assets.effects.plus600 = img)));
-  jobs.push(loadImage("assets/effects/result_end.png").then((img) => (assets.effects.resultEnd = img)));
+  jobs.push(loadImage("assets/optimized/reach_weak.png").then((img) => (assets.effects.reachWeak = img)));
+  jobs.push(loadImage("assets/optimized/reach_strong.png").then((img) => (assets.effects.reachStrong = img)));
+  jobs.push(loadImage("assets/optimized/rush_reach.png").then((img) => (assets.effects.rushReach = img)));
+  jobs.push(loadImage("assets/optimized/rush_entry.png").then((img) => (assets.effects.rushEntry = img)));
+  jobs.push(loadImage("assets/optimized/rush_exit.png").then((img) => (assets.effects.rushExit = img)));
+  jobs.push(loadImage("assets/optimized/plus_300.png").then((img) => (assets.effects.plus300 = img)));
+  jobs.push(loadImage("assets/optimized/plus_600.png").then((img) => (assets.effects.plus600 = img)));
+  jobs.push(loadImage("assets/optimized/result_end.png").then((img) => (assets.effects.resultEnd = img)));
   jobs.push(loadFrameSequence("assets/effects/puchun_jpg", "puchun", 37).then((frames) => (assets.puchunFrames = frames)));
   jobs.push(loadFrameSequence("assets/effects/promotion_seven_bg_jpg", "bg", 45).then((frames) => (assets.promotionSevenBgFrames = frames)));
   audio.setBgmTracks({
@@ -3494,6 +3540,16 @@ async function loadAssets() {
     resultReveal1: loadSe("assets/se/result_reveal_1.mp3"),
     resultReveal2: loadSe("assets/se/result_reveal_2.mp3"),
   });
+  jobs.push(Promise.all([
+    loadSeBuffer("assets/se/button.mp3").then((buffer) => ["button", buffer]),
+    loadSeBuffer("assets/se/reel_stop.mp3").then((buffer) => ["reelStop", buffer]),
+    loadSeBuffer("assets/se/checker.mp3").then((buffer) => ["checker", buffer]),
+    loadSeBuffer("assets/se/reach.mp3").then((buffer) => ["reach", buffer]),
+    loadSeBuffer("assets/se/result_reveal_1.mp3").then((buffer) => ["resultReveal1", buffer]),
+    loadSeBuffer("assets/se/result_reveal_2.mp3").then((buffer) => ["resultReveal2", buffer]),
+  ]).then((entries) => {
+    audio.setSeBuffers(Object.fromEntries(entries.filter((entry) => entry[1])));
+  }));
   await Promise.all(jobs);
 }
 
