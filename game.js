@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-20";
+const ASSET_VERSION = "html-port-20260513-22";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -19,6 +19,9 @@ const RETRY_PANEL_BOUNDS = { x: 22, y: 786, w: 132, h: 48 };
 const SOUND_STORAGE_KEY = "pachinko.soundLevel";
 const LEGACY_SOUND_STORAGE_KEY = "pachinko.soundEnabled";
 const SOUND_LEVEL_FACTORS = [0, 0.33, 0.66, 1];
+const USE_WEB_AUDIO_BGM_GAIN =
+  /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+  (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
 if (typeof window !== "undefined") {
   window.__headerHudLayout = HEADER_HUD_LAYOUT;
@@ -223,6 +226,7 @@ const audio = {
   bgm: {},
   se: {},
   seBuffers: {},
+  bgmNodes: new Map(),
   activeSe: new Set(),
   activeTones: new Set(),
   activeBgm: null,
@@ -242,16 +246,52 @@ const audio = {
     return volume * this.volumeFactor;
   },
   unlock() {
-    if (!this.enabled || this.unlocked) return;
+    if (!this.enabled) return;
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
     this.ctx = this.ctx || new AudioContext();
-    if (this.ctx.state === "suspended") this.ctx.resume();
+    this.resumeContext();
     for (const track of Object.values(this.bgm)) {
-      track.volume = this.bgmVolume();
       track.loop = true;
+      this.setBgmTrackVolume(track, this.bgmVolume());
     }
     this.unlocked = true;
+  },
+  resumeContext() {
+    if (this.ctx && this.ctx.state === "suspended") {
+      this.ctx.resume().catch(() => {});
+    }
+  },
+  ensureBgmNode(track) {
+    if (!USE_WEB_AUDIO_BGM_GAIN) return null;
+    if (!track || !this.ctx) return null;
+    if (this.bgmNodes.has(track)) return this.bgmNodes.get(track);
+    try {
+      const source = this.ctx.createMediaElementSource(track);
+      const gain = this.ctx.createGain();
+      source.connect(gain).connect(this.ctx.destination);
+      const node = { source, gain };
+      this.bgmNodes.set(track, node);
+      track.volume = 1;
+      return node;
+    } catch (_) {
+      return null;
+    }
+  },
+  setBgmTrackVolume(track, volume) {
+    const clamped = Math.max(0, Math.min(1, volume));
+    const node = this.ensureBgmNode(track);
+    if (node) {
+      node.gain.gain.value = clamped;
+      track.volume = 1;
+      return;
+    }
+    track.volume = clamped;
+  },
+  getBgmTrackVolume(track) {
+    const node = this.bgmNodes.get(track);
+    if (node) return node.gain.gain.value;
+    return track.volume;
   },
   setBgmTracks(tracks) {
     this.bgm = tracks;
@@ -270,7 +310,7 @@ const audio = {
       return;
     }
     this.unlock();
-    if (this.activeBgm) this.activeBgm.volume = this.bgmVolume();
+    if (this.activeBgm) this.setBgmTrackVolume(this.activeBgm, this.bgmVolume());
     this.updateBgm();
   },
   nextLevel() {
@@ -278,6 +318,7 @@ const audio = {
   },
   playSe(name, volume = this.defaultSeVolume) {
     if (!this.enabled || !this.unlocked) return false;
+    this.resumeContext();
     const buffer = this.seBuffers[name];
     if (buffer && this.ctx) {
       const source = this.ctx.createBufferSource();
@@ -301,9 +342,33 @@ const audio = {
     const source = this.se[name];
     if (!source) return false;
     const sound = source.cloneNode(true);
-    sound.volume = this.seVolume(volume);
+    let mediaNode = null;
+    let mediaGain = null;
+    if (this.ctx) {
+      try {
+        mediaNode = this.ctx.createMediaElementSource(sound);
+        mediaGain = this.ctx.createGain();
+        mediaGain.gain.value = this.seVolume(volume);
+        mediaNode.connect(mediaGain).connect(this.ctx.destination);
+        sound.volume = 1;
+      } catch (_) {
+        mediaNode = null;
+        mediaGain = null;
+        sound.volume = this.seVolume(volume);
+      }
+    } else {
+      sound.volume = this.seVolume(volume);
+    }
     this.activeSe.add(sound);
-    const cleanup = () => this.activeSe.delete(sound);
+    const cleanup = () => {
+      this.activeSe.delete(sound);
+      try {
+        if (mediaNode) mediaNode.disconnect();
+      } catch (_) {}
+      try {
+        if (mediaGain) mediaGain.disconnect();
+      } catch (_) {}
+    };
     sound.addEventListener("ended", cleanup, { once: true });
     sound.addEventListener("pause", cleanup, { once: true });
     sound.play().catch(() => {});
@@ -311,11 +376,12 @@ const audio = {
   },
   playBgm(name) {
     if (!this.enabled || !this.unlocked) return;
+    this.resumeContext();
     const next = this.bgm[name];
     if (!next || this.activeBgm === next) return;
     this.fadeOutActive(100);
     this.activeBgm = next;
-    next.volume = this.bgmVolume();
+    this.setBgmTrackVolume(next, this.bgmVolume());
     next.currentTime = 0;
     next.play().catch(() => {});
   },
@@ -340,16 +406,16 @@ const audio = {
       clearInterval(this.fadeTimer);
       this.fadeTimer = null;
     }
-    const startVolume = track.volume;
+    const startVolume = this.getBgmTrackVolume(track);
     const startedAt = performance.now();
     this.fadeTimer = window.setInterval(() => {
       const t = clamp01((performance.now() - startedAt) / ms);
-      track.volume = startVolume * (1 - t);
+      this.setBgmTrackVolume(track, startVolume * (1 - t));
       if (t >= 1) {
         clearInterval(this.fadeTimer);
         this.fadeTimer = null;
         track.pause();
-        track.volume = this.bgmVolume();
+        this.setBgmTrackVolume(track, this.bgmVolume());
         if (this.activeBgm === track) this.activeBgm = null;
       }
     }, 16);
@@ -368,6 +434,7 @@ const audio = {
       if (!track) continue;
       track.pause();
       track.currentTime = 0;
+      this.setBgmTrackVolume(track, 0);
     }
     this.activeBgm = null;
     for (const sound of Array.from(this.activeSe)) {
@@ -3654,6 +3721,11 @@ async function loadAssets() {
     loadSeBuffer("assets/se/reel_stop.mp3").then((buffer) => ["reelStop", buffer]),
     loadSeBuffer("assets/se/checker.mp3").then((buffer) => ["checker", buffer]),
     loadSeBuffer("assets/se/reach.mp3").then((buffer) => ["reach", buffer]),
+    loadSeBuffer("assets/se/crowd_forecast.mp3").then((buffer) => ["crowdForecast", buffer]),
+    loadSeBuffer("assets/se/puchun.mp3").then((buffer) => ["puchun", buffer]),
+    loadSeBuffer("assets/se/seven_win.mp3").then((buffer) => ["sevenWin", buffer]),
+    loadSeBuffer("assets/se/normal_win.mp3").then((buffer) => ["normalWin", buffer]),
+    loadSeBuffer("assets/se/result_end.mp3").then((buffer) => ["resultEnd", buffer]),
     loadSeBuffer("assets/se/result_reveal_1.mp3").then((buffer) => ["resultReveal1", buffer]),
     loadSeBuffer("assets/se/result_reveal_2.mp3").then((buffer) => ["resultReveal2", buffer]),
   ]).then((entries) => {
