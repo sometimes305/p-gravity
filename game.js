@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-25";
+const ASSET_VERSION = "html-port-20260513-32";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -46,6 +46,13 @@ const SETTINGS = {
   reachPause: 900,
   flipDuration: 400,
   resultHold: 980,
+  missShortenChance: 0.56,
+  missStopStartScale: 0.82,
+  missStopDurationScale: 0.8,
+  missReachAddLapScale: 0.72,
+  noReachMissShortenChance: 0.68,
+  noReachMissStopStartScale: 0.58,
+  noReachMissStopDurationScale: 0.54,
   loseReturnDelay: 260,
   winReturnDelay: 560,
   payoutEffectMs300: 1280,
@@ -76,7 +83,7 @@ const SETTINGS = {
   stopChainJitterMs: 130,
   stopDurationJitterMs: 180,
   rushStopStartScale: 0.82,
-  rushStopDurationScale: 0.78,
+  rushStopDurationScale: 0.64,
   rushStopChainGapScale: 0.65,
   rushReachPauseScale: 0.72,
   rushReachSlowSpeedMultiplier: 1.12,
@@ -111,6 +118,7 @@ const SETTINGS = {
   resultDarkenMs: 1100,
   resultRowDelayMs: 1500,
   resultRestartDelayMs: 2500,
+  introTapDelayMs: 2000,
   idleFrameMs: 1000,
   normalCrowdHitShare: 0.4,
   normalCrowdReliability: 0.8,
@@ -159,6 +167,7 @@ const state = {
   lastTime: performance.now(),
   resultShown: false,
   resultPresentation: null,
+  introPresentation: null,
   scoreReported: false,
   debug: false,
   stopOrder: [],
@@ -844,14 +853,14 @@ function showTimeBonus(seconds, seven = false) {
 }
 
 function resultCommentForScore(score) {
-  if (score <= 0) return "\u0031\u0030\u0035\u0030\u5e74\u5730\u4e0b\u884c\u304d\u3063......\uff01";
+  if (score <= 0) return "\u3069\u3046\u3057\u3066\u305d\u3093\u306a\u3053\u3068\u306b\u306a\u308b\u3093\uff1f";
   if (score <= 499) return "\u4eca\u65e5\u306e\u591c\u3054\u98ef\u306f\u3082\u3084\u3057\u304b\u306a......";
-  if (score <= 1999) return "\u4eca\u65e5\u306f\u65e9\u3081\u306b\u5bdd\u3088\u3046\u3002";
-  if (score <= 3999) return "\u4eca\u65e5\u306f\u3061\u3087\u3063\u3068\u30c4\u30a4\u3066\u308b\u3002";
-  if (score <= 5999) return "\u6ce2\u304c\u6765\u3066\u3044\u308b\u3002";
-  if (score <= 7999) return "\u304b\u306a\u308a\u3044\u3044\u611f\u3058\u3067\u3059\u3002";
+  if (score <= 1999) return "\u904b\u304c\u306a\u3044\u306d\u3002\u4eca\u65e5\u306f\u65e9\u3081\u306b\u5bdd\u3088\u3046\u3002";
+  if (score <= 3999) return "\u307e\u3042\u307e\u3042\u3060\u306d";
+  if (score <= 5999) return "\u3061\u3087\u3063\u3068\u6d41\u308c\u6765\u3066\u308b\uff1f";
+  if (score <= 7999) return "\u4eca\u65e5\u306f\u30a4\u30b1\u308b\u6c17\u304c\u3059\u308b ......\uff01";
   if (score <= 9999) return "\u4eca\u591c\u306f\u713c\u8089\u3060\uff01";
-  if (score <= 14999) return "\u4f1d\u8aac\u306e\u59cb\u307e\u308a";
+  if (score <= 14999) return "\u4f1d\u8aac\u306e\u59cb\u307e\u308a\u3060\uff01";
   return "\u661f\u304c\u304b\u3063\u3066\u307e\u3059\u306d\u3002";
 }
 
@@ -1046,8 +1055,47 @@ function pendingBallsAndHolds() {
   return state.holds + state.balls.length;
 }
 
+function showIntro() {
+  state.status = "intro";
+  state.introPresentation = {
+    start: performance.now(),
+  };
+  refreshButtonState();
+}
+
+function introCanStart(now = performance.now()) {
+  return state.status === "intro"
+    && state.introPresentation
+    && now - state.introPresentation.start >= SETTINGS.introTapDelayMs;
+}
+
+function startGameFromIntro() {
+  if (!introCanStart()) return false;
+  state.status = "idle";
+  state.introPresentation = null;
+  audio.unlock();
+  audio.updateBgm();
+  refreshButtonState();
+  wakeLoop();
+  return true;
+}
+
+function isOutOfPlayableTurns() {
+  return state.status === "idle"
+    && state.points < SETTINGS.ballCost
+    && state.holds <= 0
+    && state.balls.length <= 0;
+}
+
+function finishIfOutOfPlayableTurns() {
+  if (!isOutOfPlayableTurns()) return false;
+  state.remainingMs = 0;
+  showResult();
+  return true;
+}
+
 function refreshButtonState() {
-  if (state.status === "loading") {
+  if (state.status === "loading" || state.status === "intro") {
     spinButton.disabled = true;
     return;
   }
@@ -1065,6 +1113,7 @@ function refreshButtonState() {
 function consumeHoldIfIdle() {
   if (state.status !== "idle") return;
   if (state.holds <= 0) {
+    if (finishIfOutOfPlayableTurns()) return;
     refreshButtonState();
     return;
   }
@@ -1090,7 +1139,7 @@ function fireBall() {
   if (state.status === "result") {
     return;
   }
-  if (state.status === "loading") return;
+  if (state.status === "loading" || state.status === "intro") return;
   if (state.points < SETTINGS.ballCost) return;
 
   state.points -= SETTINGS.ballCost;
@@ -1129,6 +1178,27 @@ function toggleSound() {
   wakeLoop();
 }
 
+function chooseTempoVariant(result) {
+  if (!result || result.win) return "default";
+  const chance = result.reach ? SETTINGS.missShortenChance : SETTINGS.noReachMissShortenChance;
+  return Math.random() < chance ? "short" : "default";
+}
+
+function tempoForResult(result) {
+  const rushTempo = result?.beforeMode === RUSH;
+  const shortenedMiss = result && !result.win && result.tempoVariant === "short";
+  const noReachMiss = shortenedMiss && !result.reach;
+  const missScale = noReachMiss ? SETTINGS.noReachMissStopDurationScale : shortenedMiss ? SETTINGS.missStopDurationScale : 1;
+  const missStartScale = noReachMiss ? SETTINGS.noReachMissStopStartScale : shortenedMiss ? SETTINGS.missStopStartScale : 1;
+  return {
+    firstStopScale: (rushTempo ? SETTINGS.rushStopStartScale : 1) * missStartScale,
+    stopDurationScale: (rushTempo ? SETTINGS.rushStopDurationScale : 1) * missScale,
+    stopChainGapScale: 1,
+    reachPauseScale: 1,
+    reachAddLapScale: shortenedMiss ? SETTINGS.missReachAddLapScale : 1,
+  };
+}
+
 function reportFinalScore(score) {
   if (state.scoreReported) return;
   state.scoreReported = true;
@@ -1156,6 +1226,7 @@ function startSpin() {
 
   audio.spin();
   state.result = drawLot();
+  state.result.tempoVariant = chooseTempoVariant(state.result);
   state.crowdForecast = null;
   state.reachLedActive = false;
   state.status = "spinning";
@@ -1166,7 +1237,7 @@ function startSpin() {
   const now = performance.now();
   const shouldFlipToUra = state.result.reach;
   const instantTripleStop = !!state.result.instantTripleStop;
-  const rushTempo = state.result.beforeMode === RUSH;
+  const tempo = tempoForResult(state.result);
   const stopOrder = instantTripleStop ? [0, 1, 2] : [0, 2, 1];
 
   for (const reel of state.reels) {
@@ -1189,7 +1260,7 @@ function startSpin() {
   state.stopCursor = 0;
   const firstStopDelay = instantTripleStop
     ? SETTINGS.instantTripleStopDelay
-    : SETTINGS.spinDurations[0] * (rushTempo ? SETTINGS.rushStopStartScale : 1);
+    : SETTINGS.spinDurations[0] * tempo.firstStopScale;
   state.nextStopAt = now + firstStopDelay + randRange(-SETTINGS.stopInitialJitterMs, SETTINGS.stopInitialJitterMs);
   state.flipToBackPending = shouldFlipToUra && !instantTripleStop;
 }
@@ -1218,12 +1289,14 @@ function beginStop(reel, now, deltaToTarget) {
   reel.stopVelocity = SETTINGS.spinDirection * Math.max(0.001, reel.currentSpeed / 1000);
   const instantTripleStop = !!state.result?.instantTripleStop;
   const rushTempo = state.result?.beforeMode === RUSH;
+  const tempo = tempoForResult(state.result);
   reel.slowReachStop = !instantTripleStop && reel.index === 1 && state.result?.reach;
 
   let stopDistance = reel.slowReachStop ? deltaToTarget : reel.stopProfile.visibleCells;
   const reachMinCells = rushTempo ? SETTINGS.rushReachMinCells : SETTINGS.reachCenterMinCells;
   const reachExtraCells = rushTempo ? SETTINGS.rushReachExtraCells : SETTINGS.reachCenterExtraCells;
-  const reachAddLapBelowMs = rushTempo ? SETTINGS.rushReachAddLapBelowMs : SETTINGS.reachCenterAddLapBelowMs;
+  const reachAddLapBelowMs = (rushTempo ? SETTINGS.rushReachAddLapBelowMs : SETTINGS.reachCenterAddLapBelowMs)
+    * tempo.reachAddLapScale;
   if (reel.slowReachStop && stopDistance < reachMinCells) {
     stopDistance += Math.ceil(reachExtraCells / SYMBOLS.length) * SYMBOLS.length;
   }
@@ -1276,8 +1349,8 @@ function beginStop(reel, now, deltaToTarget) {
     reel.crowdForecastPlayed = false;
   } else {
     const jitter = instantTripleStop ? 0 : randRange(-SETTINGS.stopDurationJitterMs, SETTINGS.stopDurationJitterMs);
-    const tempoScale = rushTempo && !instantTripleStop ? SETTINGS.rushStopDurationScale : 1;
-    reel.stopDuration = Math.max(220, (reel.stopProfile.minDuration + jitter) * tempoScale);
+    const tempoScale = instantTripleStop ? 1 : tempo.stopDurationScale;
+    reel.stopDuration = Math.max(180, (reel.stopProfile.minDuration + jitter) * tempoScale);
   }
 }
 
@@ -1466,6 +1539,7 @@ function updateBalls(dt) {
     }
   }
   state.balls = state.balls.filter((ball) => !ball.collected);
+  finishIfOutOfPlayableTurns();
   refreshButtonState();
 }
 
@@ -1496,12 +1570,16 @@ function advanceStopChainAfter(index, now) {
   }
   if (state.stopCursor < state.stopOrder.length) {
     const nextIndex = state.stopOrder[state.stopCursor];
-    const rushTempo = state.result?.beforeMode === RUSH;
-    const gap = SETTINGS.stopChainGap * (rushTempo ? SETTINGS.rushStopChainGapScale : 1);
+    const tempo = tempoForResult(state.result);
+    const gap = SETTINGS.stopChainGap * tempo.stopChainGapScale;
     const reachDelayBase = nextIndex === 1 && state.result?.reach ? SETTINGS.reachPause : 0;
-    const reachDelay = reachDelayBase * (rushTempo ? SETTINGS.rushReachPauseScale : 1);
-    const jitter = SETTINGS.stopChainJitterMs * (rushTempo ? SETTINGS.rushStopChainGapScale : 1);
-    state.nextStopAt = now + gap + reachDelay + randRange(-jitter, jitter);
+    const reachDelay = reachDelayBase * tempo.reachPauseScale;
+    const jitter = SETTINGS.stopChainJitterMs * tempo.stopChainGapScale;
+    let chainDelay = gap + reachDelay + randRange(-jitter, jitter);
+    if (state.result?.tempoVariant === "short") {
+      chainDelay = Math.max(chainDelay, SETTINGS.stopChainGap + reachDelay);
+    }
+    state.nextStopAt = now + chainDelay;
   }
 }
 
@@ -1578,6 +1656,7 @@ function processCompletedSpinResult(result) {
       state.status = "idle";
       audio.updateBgm();
       consumeHoldIfIdle();
+      finishIfOutOfPlayableTurns();
       refreshButtonState();
     }
   }, settleDelay);
@@ -1586,6 +1665,7 @@ function processCompletedSpinResult(result) {
 function showResult() {
   state.status = "result";
   state.resultShown = true;
+  state.introPresentation = null;
   state.resultPresentation = {
     start: performance.now(),
     comment: resultCommentForScore(state.points),
@@ -1631,12 +1711,13 @@ function updateResultPresentation(now) {
 
 function update(dt, now) {
   updateResultPresentation(now);
-  if (state.status !== "loading" && state.status !== "result") {
+  if (state.status !== "loading" && state.status !== "intro" && state.status !== "result") {
     state.remainingMs = Math.max(0, state.remainingMs - dt);
     if (state.remainingMs <= 0 && state.status === "idle") {
       showResult();
     }
   }
+  if (finishIfOutOfPlayableTurns()) return;
 
   for (const reel of state.reels) {
     if (reel.flipStart) {
@@ -3540,6 +3621,63 @@ function drawResult(now) {
   ctx.restore();
 }
 
+function drawIntro(now) {
+  const presentation = state.introPresentation;
+  if (state.status !== "intro" || !presentation) return;
+  const frameX = SETTINGS.reelWindowX;
+  const frameY = SETTINGS.reelWindowY;
+  const frameW = SETTINGS.reelWindowW;
+  const frameH = SETTINGS.reelWindowH;
+  const cx = frameX + frameW / 2;
+  const elapsed = now - presentation.start;
+  const ready = elapsed >= SETTINGS.introTapDelayMs;
+  const alpha = easeOutCubic(clamp01(elapsed / 360));
+  const tapAlpha = ready ? 0.72 + Math.sin(now / 240) * 0.18 : 0.34;
+
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(frameX, frameY, frameW, frameH);
+  ctx.clip();
+  ctx.globalAlpha = alpha;
+  if (assets.headerPanelBackground) {
+    drawImageCover(assets.headerPanelBackground, frameX, frameY, frameW, frameH);
+    ctx.fillStyle = "rgba(8,4,24,0.46)";
+    ctx.fillRect(frameX, frameY, frameW, frameH);
+  } else {
+    ctx.fillStyle = "rgba(8,4,24,0.92)";
+    ctx.fillRect(frameX, frameY, frameW, frameH);
+  }
+
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineWidth = 4;
+  ctx.strokeStyle = "rgba(0,0,0,0.82)";
+  ctx.fillStyle = "#ffffff";
+  ctx.font = "900 27px '\u3042\u3093\u305a\u3082\u3058', 'AnzuMojI', 'AnzuMojI04', Meiryo, sans-serif";
+  ctx.strokeText("\u904a\u3073\u65b9", cx, frameY + 42);
+  ctx.fillText("\u904a\u3073\u65b9", cx, frameY + 42);
+
+  ctx.font = "800 18px '\u3042\u3093\u305a\u3082\u3058', 'AnzuMojI', 'AnzuMojI04', Meiryo, sans-serif";
+  const lines = [
+    "\u6642\u9593\u5185\u306b\u30dd\u30a4\u30f3\u30c8\u3092\u5897\u3084\u305d\u3046",
+    "\u30dc\u30bf\u30f3\u3067\u7389\u3092\u767a\u5c04\u3057",
+    "\u30b9\u30bf\u30fc\u30c8\u306b\u5165\u308c\u3088\u3046",
+    "\u6570\u5b57\u304c\u63c3\u3046\u3068\u30dd\u30a4\u30f3\u30c8GET",
+    "\u5947\u6570\u63c3\u3044\u3067RUSH\u7a81\u5165",
+  ];
+  const ys = [frameY + 86, frameY + 132, frameY + 158, frameY + 206, frameY + 232];
+  for (let i = 0; i < lines.length; i++) {
+    ctx.strokeText(lines[i], cx, ys[i]);
+    ctx.fillText(lines[i], cx, ys[i]);
+  }
+
+  ctx.globalAlpha = alpha * tapAlpha;
+  ctx.font = "900 20px '\u3042\u3093\u305a\u3082\u3058', 'AnzuMojI', 'AnzuMojI04', Meiryo, sans-serif";
+  ctx.strokeText("\u753b\u9762\u30bf\u30c3\u30d7\u3067\u30b9\u30bf\u30fc\u30c8", cx, frameY + frameH - 28);
+  ctx.fillText("\u753b\u9762\u30bf\u30c3\u30d7\u3067\u30b9\u30bf\u30fc\u30c8", cx, frameY + frameH - 28);
+  ctx.restore();
+}
+
 function drawLegacyResult() {
   ctx.save();
   ctx.fillStyle = "rgba(0,0,0,0.72)";
@@ -3594,6 +3732,7 @@ function render(now) {
   drawScreenEffects(now);
   drawTimeBonus(now);
   drawToast(now);
+  drawIntro(now);
   if (state.resultShown) drawResult(now);
 }
 
@@ -3616,6 +3755,7 @@ function resultAnimating(now) {
 
 function hasContinuousRenderWork(now) {
   return state.status === "loading"
+    || state.status === "intro"
     || state.status === "spinning"
     || state.status === "settling"
     || state.balls.length > 0
@@ -3823,13 +3963,13 @@ function restart() {
   state.freezePromotion = null;
   state.resultShown = false;
   state.resultPresentation = null;
+  state.introPresentation = null;
   state.scoreReported = false;
   state.stopOrder = [];
   state.stopCursor = 0;
   state.nextStopAt = 0;
   state.flipToBackPending = false;
   state.reachLedActive = false;
-  state.status = "idle";
   state.particles = [];
   state.screenEffects = [];
   state.balls = [];
@@ -3842,8 +3982,8 @@ function restart() {
   hidePuchunVideo(true);
   initReels();
   setAllFaces("front", false);
-  audio.updateBgm();
-  refreshButtonState();
+  audio.stopBgm();
+  showIntro();
   wakeLoop();
 }
 
@@ -3852,7 +3992,17 @@ spinButton.addEventListener("pointerdown", () => setSpinButtonPressing(true));
 spinButton.addEventListener("pointerup", () => setSpinButtonPressing(false));
 spinButton.addEventListener("pointercancel", () => setSpinButtonPressing(false));
 spinButton.addEventListener("pointerleave", () => setSpinButtonPressing(false));
+window.addEventListener("pointerup", (event) => {
+  if (state.status !== "intro") return;
+  if (!startGameFromIntro()) return;
+  event.preventDefault();
+  event.stopPropagation();
+}, true);
 canvas.addEventListener("pointerup", (event) => {
+  if (state.status === "intro") {
+    startGameFromIntro();
+    return;
+  }
   const point = eventToDesignPoint(event);
   if (pointInRect(point, SOUND_TOGGLE_BOUNDS)) {
     toggleSound();
@@ -3872,8 +4022,7 @@ loadAssets()
     positionPuchunVideo();
     initReels();
     setAllFaces("front", false);
-    state.status = "idle";
-    refreshButtonState();
+    showIntro();
     loading.hidden = true;
     state.lastTime = performance.now();
     scheduleLoop();
