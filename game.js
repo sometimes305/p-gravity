@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-13";
+const ASSET_VERSION = "html-port-20260513-15";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -127,7 +127,7 @@ const SETTINGS = {
 };
 
 const canvas = document.getElementById("game");
-const ctx = canvas.getContext("2d");
+let ctx = canvas.getContext("2d");
 const spinButton = document.getElementById("spinButton");
 const puchunVideo = document.getElementById("puchunVideo");
 const loading = document.getElementById("loading");
@@ -181,6 +181,13 @@ const assets = {
   plinkoBackground: null,
   retry: null,
   effects: {},
+};
+
+const renderCache = {
+  baseByMode: new Map(),
+  boardStatic: null,
+  chrome: null,
+  dirty: true,
 };
 
 const PLINKO_PINS = [];
@@ -1503,6 +1510,10 @@ function update(dt, now) {
 }
 
 function drawBackground() {
+  drawBackgroundForMode(state.mode);
+}
+
+function drawBackgroundForMode(_mode) {
   const g = ctx.createLinearGradient(0, 0, 0, DESIGN_H);
   g.addColorStop(0, "#070914");
   g.addColorStop(0.45, "#02040a");
@@ -2054,6 +2065,54 @@ function effectImageSize(img, maxW, maxH, scale = 1) {
   return { w: img.width * fit, h: img.height * fit };
 }
 
+function createRenderSurface() {
+  if (typeof OffscreenCanvas !== "undefined") {
+    return new OffscreenCanvas(DESIGN_W, DESIGN_H);
+  }
+  const surface = document.createElement("canvas");
+  surface.width = DESIGN_W;
+  surface.height = DESIGN_H;
+  return surface;
+}
+
+function drawIntoSurface(surface, draw) {
+  const previousCtx = ctx;
+  const surfaceCtx = surface.getContext("2d");
+  ctx = surfaceCtx;
+  ctx.clearRect(0, 0, DESIGN_W, DESIGN_H);
+  try {
+    draw();
+  } finally {
+    ctx = previousCtx;
+  }
+}
+
+function makeCachedSurface(draw) {
+  const surface = createRenderSurface();
+  drawIntoSurface(surface, draw);
+  return surface;
+}
+
+function rebuildRenderCache() {
+  renderCache.baseByMode.set(NORMAL, makeCachedSurface(() => {
+    drawBackgroundForMode(NORMAL);
+    drawCabinetShell();
+    drawReelMaskForMode(NORMAL);
+  }));
+  renderCache.baseByMode.set(RUSH, makeCachedSurface(() => {
+    drawBackgroundForMode(RUSH);
+    drawCabinetShell();
+    drawReelMaskForMode(RUSH);
+  }));
+  renderCache.boardStatic = makeCachedSurface(drawPachinkoBoardStatic);
+  renderCache.chrome = makeCachedSurface(drawCabinetChrome);
+  renderCache.dirty = false;
+}
+
+function ensureRenderCache() {
+  if (renderCache.dirty) rebuildRenderCache();
+}
+
 function animationFrameAt(frames, startedAt, fps, loop = false) {
   if (!frames.length || !startedAt) return null;
   const elapsed = Math.max(0, performance.now() - startedAt);
@@ -2062,8 +2121,8 @@ function animationFrameAt(frames, startedAt, fps, loop = false) {
   return frames[index] || null;
 }
 
-function drawReelWindowBackground(frameX, frameY, frameW, frameH) {
-  const bg = state.mode === RUSH ? assets.backgroundRush : assets.backgroundNormal;
+function drawReelWindowBackground(frameX, frameY, frameW, frameH, mode = state.mode) {
+  const bg = mode === RUSH ? assets.backgroundRush : assets.backgroundNormal;
   if (!bg) return;
   ctx.save();
   ctx.beginPath();
@@ -2266,6 +2325,10 @@ function drawHeaderHud() {
 }
 
 function drawReelMask() {
+  drawReelMaskForMode(state.mode);
+}
+
+function drawReelMaskForMode(mode) {
   ctx.save();
   const frameX = SETTINGS.reelWindowX;
   const frameY = SETTINGS.reelWindowY;
@@ -2278,7 +2341,7 @@ function drawReelMask() {
   grad.addColorStop(1, "rgba(0,0,0,0.82)");
   ctx.fillStyle = "rgba(0,0,0,0.76)";
   ctx.fillRect(0, 92, DESIGN_W, frameY - 92);
-  drawReelWindowBackground(frameX, frameY, frameW, frameH);
+  drawReelWindowBackground(frameX, frameY, frameW, frameH, mode);
   const glow = ctx.createRadialGradient(frameX + frameW / 2, frameY + frameH / 2, 10, frameX + frameW / 2, frameY + frameH / 2, frameW * 0.55);
   glow.addColorStop(0, "rgba(170,230,255,0.16)");
   glow.addColorStop(0.42, "rgba(139,96,255,0.08)");
@@ -2320,6 +2383,11 @@ function clipPlayfield() {
 }
 
 function drawPachinkoBoard() {
+  drawPachinkoBoardStatic();
+  drawPachinkoBoardDynamic();
+}
+
+function drawPachinkoBoardStatic() {
   ctx.save();
   const top = SETTINGS.plinkoTop;
   const bottom = SETTINGS.plinkoBottom;
@@ -2374,7 +2442,11 @@ function drawPachinkoBoard() {
   }
 
   drawStartPocketBack();
+  ctx.restore();
+}
 
+function drawPachinkoBoardDynamic() {
+  ctx.save();
   const holdY = 735;
   const holdGap = 30;
   const holdStartX = DESIGN_W - 146;
@@ -3275,17 +3347,32 @@ function drawLegacyResult() {
 }
 
 function render(now) {
-  drawBackground();
-  drawCabinetShell();
+  ensureRenderCache();
+  const base = renderCache.baseByMode.get(state.mode) || renderCache.baseByMode.get(NORMAL);
+  if (base) {
+    ctx.drawImage(base, 0, 0);
+  } else {
+    drawBackground();
+    drawCabinetShell();
+    drawReelMask();
+  }
   drawHeaderHud();
-  drawReelMask();
   drawFreezePromotionSevenBackground();
   for (const reel of state.reels) drawReel(reel);
   drawCrowdForecast(now);
   drawFreezePromotion(now);
-  drawPachinkoBoard();
+  if (renderCache.boardStatic) {
+    ctx.drawImage(renderCache.boardStatic, 0, 0);
+  } else {
+    drawPachinkoBoardStatic();
+  }
+  drawPachinkoBoardDynamic();
   drawParticles();
-  drawCabinetChrome();
+  if (renderCache.chrome) {
+    ctx.drawImage(renderCache.chrome, 0, 0);
+  } else {
+    drawCabinetChrome();
+  }
   drawLowerPanels(now);
   drawScreenEffects(now);
   drawTimeBonus(now);
@@ -3294,6 +3381,10 @@ function render(now) {
 }
 
 function loop(now) {
+  if (document.visibilityState === "hidden") {
+    requestAnimationFrame(loop);
+    return;
+  }
   const dt = Math.min(50, now - state.lastTime);
   state.lastTime = now;
   update(dt, now);
