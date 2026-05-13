@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-15";
+const ASSET_VERSION = "html-port-20260513-16";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -2260,6 +2260,9 @@ function drawHeaderHud() {
   const seconds = Math.ceil(state.remainingMs / 1000);
   const hud = HEADER_HUD_LAYOUT;
   ctx.save();
+  ctx.beginPath();
+  ctx.rect(0, 0, DESIGN_W, 92);
+  ctx.clip();
   if (assets.headerPanelBackground) {
     ctx.globalAlpha = 1;
     ctx.shadowColor = "transparent";
