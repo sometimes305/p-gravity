@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-18";
+const ASSET_VERSION = "html-port-20260513-20";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -16,7 +16,9 @@ const HEADER_HUD_LAYOUT = {
 
 const SOUND_TOGGLE_BOUNDS = { x: DESIGN_W - 154, y: 786, w: 132, h: 48 };
 const RETRY_PANEL_BOUNDS = { x: 22, y: 786, w: 132, h: 48 };
-const SOUND_STORAGE_KEY = "pachinko.soundEnabled";
+const SOUND_STORAGE_KEY = "pachinko.soundLevel";
+const LEGACY_SOUND_STORAGE_KEY = "pachinko.soundEnabled";
+const SOUND_LEVEL_FACTORS = [0, 0.33, 0.66, 1];
 
 if (typeof window !== "undefined") {
   window.__headerHudLayout = HEADER_HUD_LAYOUT;
@@ -217,7 +219,7 @@ for (const row of PIN_ROWS) {
 const audio = {
   ctx: null,
   unlocked: false,
-  enabled: readSoundEnabled(),
+  level: readSoundLevel(),
   bgm: {},
   se: {},
   seBuffers: {},
@@ -227,6 +229,18 @@ const audio = {
   fadeTimer: null,
   defaultBgmVolume: 0.42,
   defaultSeVolume: 0.72,
+  get enabled() {
+    return this.level > 0;
+  },
+  get volumeFactor() {
+    return SOUND_LEVEL_FACTORS[this.level] ?? 1;
+  },
+  bgmVolume() {
+    return this.defaultBgmVolume * this.volumeFactor;
+  },
+  seVolume(volume = this.defaultSeVolume) {
+    return volume * this.volumeFactor;
+  },
   unlock() {
     if (!this.enabled || this.unlocked) return;
     const AudioContext = window.AudioContext || window.webkitAudioContext;
@@ -234,7 +248,7 @@ const audio = {
     this.ctx = this.ctx || new AudioContext();
     if (this.ctx.state === "suspended") this.ctx.resume();
     for (const track of Object.values(this.bgm)) {
-      track.volume = this.defaultBgmVolume;
+      track.volume = this.bgmVolume();
       track.loop = true;
     }
     this.unlocked = true;
@@ -248,15 +262,19 @@ const audio = {
   setSeBuffers(buffers) {
     this.seBuffers = buffers;
   },
-  setEnabled(enabled) {
-    this.enabled = enabled;
-    writeSoundEnabled(enabled);
-    if (!enabled) {
+  setLevel(level) {
+    this.level = ((level % 4) + 4) % 4;
+    writeSoundLevel(this.level);
+    if (!this.enabled) {
       this.stopAll();
       return;
     }
     this.unlock();
+    if (this.activeBgm) this.activeBgm.volume = this.bgmVolume();
     this.updateBgm();
+  },
+  nextLevel() {
+    this.setLevel((this.level + 1) % 4);
   },
   playSe(name, volume = this.defaultSeVolume) {
     if (!this.enabled || !this.unlocked) return false;
@@ -265,7 +283,7 @@ const audio = {
       const source = this.ctx.createBufferSource();
       const gain = this.ctx.createGain();
       source.buffer = buffer;
-      gain.gain.value = volume;
+      gain.gain.value = this.seVolume(volume);
       source.connect(gain).connect(this.ctx.destination);
       this.activeTones.add(source);
       source.addEventListener("ended", () => {
@@ -283,7 +301,7 @@ const audio = {
     const source = this.se[name];
     if (!source) return false;
     const sound = source.cloneNode(true);
-    sound.volume = volume;
+    sound.volume = this.seVolume(volume);
     this.activeSe.add(sound);
     const cleanup = () => this.activeSe.delete(sound);
     sound.addEventListener("ended", cleanup, { once: true });
@@ -297,7 +315,7 @@ const audio = {
     if (!next || this.activeBgm === next) return;
     this.fadeOutActive(100);
     this.activeBgm = next;
-    next.volume = this.defaultBgmVolume;
+    next.volume = this.bgmVolume();
     next.currentTime = 0;
     next.play().catch(() => {});
   },
@@ -331,7 +349,7 @@ const audio = {
         clearInterval(this.fadeTimer);
         this.fadeTimer = null;
         track.pause();
-        track.volume = this.defaultBgmVolume;
+        track.volume = this.bgmVolume();
         if (this.activeBgm === track) this.activeBgm = null;
       }
     }, 16);
@@ -375,7 +393,7 @@ const audio = {
     osc.type = type;
     osc.frequency.setValueAtTime(freq, now);
     amp.gain.setValueAtTime(0.0001, now);
-    amp.gain.exponentialRampToValueAtTime(gain, now + 0.012);
+    amp.gain.exponentialRampToValueAtTime(this.seVolume(gain), now + 0.012);
     amp.gain.exponentialRampToValueAtTime(0.0001, now + duration);
     osc.connect(amp).connect(this.ctx.destination);
     this.activeTones.add(osc);
@@ -443,17 +461,25 @@ function clamp01(value) {
   return Math.max(0, Math.min(1, value));
 }
 
-function readSoundEnabled() {
+function readSoundLevel() {
   try {
-    return localStorage.getItem(SOUND_STORAGE_KEY) !== "0";
+    const raw = localStorage.getItem(SOUND_STORAGE_KEY);
+    if (raw !== null) {
+      const stored = Number(raw);
+      if (Number.isFinite(stored)) return Math.max(0, Math.min(3, Math.round(stored)));
+    }
+    const legacy = localStorage.getItem(LEGACY_SOUND_STORAGE_KEY);
+    if (legacy === "0") return 0;
+    if (legacy === "1") return 3;
   } catch (_) {
-    return true;
+    return 3;
   }
+  return 3;
 }
 
-function writeSoundEnabled(enabled) {
+function writeSoundLevel(level) {
   try {
-    localStorage.setItem(SOUND_STORAGE_KEY, enabled ? "1" : "0");
+    localStorage.setItem(SOUND_STORAGE_KEY, String(level));
   } catch (_) {}
 }
 
@@ -959,7 +985,7 @@ function pointInRect(point, rect) {
 }
 
 function toggleSound() {
-  audio.setEnabled(!audio.enabled);
+  audio.nextLevel();
   wakeLoop();
 }
 
@@ -1420,7 +1446,6 @@ function processCompletedSpinResult(result) {
 function showResult() {
   state.status = "result";
   state.resultShown = true;
-  reportFinalScore(state.points);
   state.resultPresentation = {
     start: performance.now(),
     comment: resultCommentForScore(state.points),
@@ -1459,6 +1484,7 @@ function updateResultPresentation(now) {
   }
   if (t >= restartAt && !presentation.restartReady) {
     presentation.restartReady = true;
+    reportFinalScore(state.points);
     refreshButtonState();
   }
 }
@@ -2631,12 +2657,12 @@ function drawRetryPanelLabel(now) {
 
 function drawSoundTogglePanel() {
   const { x, y, w, h } = SOUND_TOGGLE_BOUNDS;
-  const enabled = audio.enabled;
-  drawSoundPanelBase(x, y, w, h, enabled);
-  drawSpeakerIcon(x + w / 2, y + h / 2, enabled);
+  drawSoundPanelBase(x, y, w, h, audio.level);
+  drawSpeakerIcon(x + w / 2, y + h / 2, audio.level);
 }
 
-function drawSpeakerIcon(x, y, enabled) {
+function drawSpeakerIcon(x, y, level) {
+  const enabled = level > 0;
   ctx.save();
   ctx.lineJoin = "round";
   ctx.lineCap = "round";
@@ -2656,14 +2682,22 @@ function drawSpeakerIcon(x, y, enabled) {
   ctx.closePath();
   ctx.fill();
 
-  if (enabled) {
+  if (level > 0) {
     ctx.beginPath();
     ctx.arc(x + 7, y, 8, -0.72, 0.72);
     ctx.stroke();
+  }
+  if (level > 1) {
     ctx.beginPath();
     ctx.arc(x + 9, y, 14, -0.68, 0.68);
     ctx.stroke();
-  } else {
+  }
+  if (level > 2) {
+    ctx.beginPath();
+    ctx.arc(x + 11, y, 20, -0.63, 0.63);
+    ctx.stroke();
+  }
+  if (!enabled) {
     ctx.beginPath();
     ctx.moveTo(x + 9, y - 10);
     ctx.lineTo(x + 24, y + 10);
@@ -2674,7 +2708,8 @@ function drawSpeakerIcon(x, y, enabled) {
   ctx.restore();
 }
 
-function drawSoundPanelBase(x, y, w, h, enabled) {
+function drawSoundPanelBase(x, y, w, h, level) {
+  const enabled = level > 0;
   ctx.save();
   roundRect(ctx, x, y, w, h, 20);
   ctx.clip();
