@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260514-37";
+const ASSET_VERSION = "html-port-20260514-38";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
