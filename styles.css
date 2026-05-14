@@ -220,6 +220,21 @@ body {
   color: #fff;
   font: 800 14px/1 system-ui, sans-serif;
   letter-spacing: 0.12em;
+  --loading-progress: 0%;
+}
+
+.loading::after {
+  content: "";
+  position: absolute;
+  left: 28%;
+  right: 28%;
+  top: calc(50% + 30px);
+  height: 4px;
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, #9ef7ff, #ff7cde) left / var(--loading-progress) 100% no-repeat,
+    rgba(255, 255, 255, 0.16);
+  box-shadow: 0 0 18px rgba(158, 247, 255, 0.28);
 }
 
 .loading[hidden] {

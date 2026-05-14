@@ -1,6 +1,7 @@
 # Local debug captures and generated visual checks
 debug*/
 debug_*.png
+_archive/
 
 # Asset pipeline backups that are not used by the runtime
 assets/effects/_before_transparency_*/

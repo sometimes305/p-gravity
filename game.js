@@ -2,7 +2,7 @@
 
 const DESIGN_W = 470;
 const DESIGN_H = 844;
-const ASSET_VERSION = "html-port-20260513-33";
+const ASSET_VERSION = "html-port-20260514-37";
 const SYMBOLS = [1, 2, 3, 4, 5, 6, 7, 8, 9];
 const NORMAL = "NORMAL";
 const RUSH = "RUSH";
@@ -3882,6 +3882,13 @@ async function loadSeBuffer(src) {
   }
 }
 
+function updateLoadingProgress(completed, total) {
+  if (!loading || loading.hidden) return;
+  const percent = total > 0 ? Math.floor((completed / total) * 100) : 0;
+  loading.textContent = `LOADING ${percent}%`;
+  loading.style.setProperty("--loading-progress", `${percent}%`);
+}
+
 async function loadAssets() {
   const jobs = [];
   for (const n of SYMBOLS) {
@@ -3951,7 +3958,12 @@ async function loadAssets() {
   ]).then((entries) => {
     audio.setSeBuffers(Object.fromEntries(entries.filter((entry) => entry[1])));
   }));
-  await Promise.all(jobs);
+  let completed = 0;
+  updateLoadingProgress(completed, jobs.length);
+  await Promise.all(jobs.map((job) => Promise.resolve(job).finally(() => {
+    completed++;
+    updateLoadingProgress(completed, jobs.length);
+  })));
 }
 
 function restart() {
@@ -3994,18 +4006,25 @@ spinButton.addEventListener("pointercancel", () => setSpinButtonPressing(false))
 spinButton.addEventListener("pointerleave", () => setSpinButtonPressing(false));
 window.addEventListener("pointerup", (event) => {
   if (state.status !== "intro") return;
+  const point = eventToDesignPoint(event);
+  if (pointInRect(point, SOUND_TOGGLE_BOUNDS)) {
+    toggleSound();
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   if (!startGameFromIntro()) return;
   event.preventDefault();
   event.stopPropagation();
 }, true);
 canvas.addEventListener("pointerup", (event) => {
-  if (state.status === "intro") {
-    startGameFromIntro();
-    return;
-  }
   const point = eventToDesignPoint(event);
   if (pointInRect(point, SOUND_TOGGLE_BOUNDS)) {
     toggleSound();
+    return;
+  }
+  if (state.status === "intro") {
+    startGameFromIntro();
     return;
   }
   if (
